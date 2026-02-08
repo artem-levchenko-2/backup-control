@@ -12,7 +12,6 @@ let _db: Database.Database | null = null;
 
 function getDb(): Database.Database {
   if (!_db) {
-    // Ensure data directory exists
     const fs = require("fs");
     const dir = path.dirname(DB_PATH);
     if (!fs.existsSync(dir)) {
@@ -248,7 +247,6 @@ export function getDashboardStats(): DashboardStats {
 
   const recentRuns = getAllRuns(5);
 
-  // Jobs with their last run info
   const jobsWithLastRun = db.prepare(`
     SELECT j.*,
       lr.status as last_run_status,
@@ -263,13 +261,26 @@ export function getDashboardStats(): DashboardStats {
     ORDER BY j.name
   `).all() as JobWithLastRun[];
 
-  // Simulated disk info (on real server, would use df command)
-  const disks: DiskInfo[] = [
-    { mount: "/srv/storage", label: "MEDIA", total_gb: 190, used_gb: 72, free_gb: 118, usage_percent: 38 },
-    { mount: "/srv/storage/toshiba", label: "Toshiba (Nextcloud)", total_gb: 466, used_gb: 13, free_gb: 453, usage_percent: 3 },
-    { mount: "/srv/storage/transcend", label: "Transcend (Immich)", total_gb: 458, used_gb: 85, free_gb: 373, usage_percent: 19 },
-    { mount: "/dev/sda1", label: "System VM", total_gb: 50, used_gb: 12, free_gb: 38, usage_percent: 24 },
+  // Disk info from settings (configured by user in UI)
+  const disks: DiskInfo[] = [];
+  const disksJson = getSetting("disks_config");
+  if (disksJson) {
+    try {
+      const parsed = JSON.parse(disksJson);
+      if (Array.isArray(parsed)) disks.push(...parsed);
+    } catch { /* ignore */ }
+  }
+
+  // Server info from settings
+  const serverInfo: Record<string, string> = {};
+  const serverKeys = [
+    "server_hostname", "server_cpu", "server_ram",
+    "server_docker_ip", "server_tailscale_ip", "server_proxmox_ip",
   ];
+  for (const key of serverKeys) {
+    const val = getSetting(key);
+    if (val) serverInfo[key] = val;
+  }
 
   return {
     total_jobs: totalJobs,
@@ -282,6 +293,7 @@ export function getDashboardStats(): DashboardStats {
     disks,
     recent_runs: recentRuns,
     jobs_with_last_run: jobsWithLastRun,
+    server_info: serverInfo,
   };
 }
 
@@ -308,142 +320,48 @@ export function getAllSettings(): Settings[] {
 
 export function seedDatabase(): void {
   const db = getDb();
-  const jobCount = (db.prepare("SELECT COUNT(*) as count FROM jobs").get() as { count: number }).count;
-  if (jobCount > 0) return; // Already seeded
 
-  const now = new Date();
-
-  // Create example jobs matching the user's actual server setup
-  const jobs = [
-    {
-      name: "Nextcloud Datadir → Google Drive",
-      type: "rclone_copy",
-      source_path: "/mnt/toshiba/nextcloud-data",
-      destination_path: "artem-g-drive:homelab-backup/nextcloud-data",
-      schedule: "daily 02:00",
-      flags: "--checksum --transfers 4 --bwlimit 10M",
-      description: "Копія Nextcloud datadir (Toshiba диск) у Google Drive. ~13GB даних.",
-    },
-    {
-      name: "Immich Media → Google Drive",
-      type: "rclone_copy",
-      source_path: "/srv/storage/transcend/immich",
-      destination_path: "artem-g-drive:homelab-backup/immich-media",
-      schedule: "daily 03:00",
-      flags: "--checksum --transfers 4 --bwlimit 10M --exclude 'thumbs/**' --exclude 'encoded-video/**'",
-      description: "Копія Immich фото/відео (Transcend диск) у Google Drive. Бібліотека + uploads.",
-    },
-    {
-      name: "Immich DB Backup",
-      type: "immich_db_backup",
-      source_path: "/srv/storage/transcend/immich/backups",
-      destination_path: "artem-g-drive:homelab-backup/immich-db",
-      schedule: "daily 04:00",
-      flags: "",
-      description: "Дамп бази даних Immich (Postgres) + копія у Google Drive. Критично для відновлення.",
-    },
-    {
-      name: "Media Library → Google Drive",
-      type: "rclone_copy",
-      source_path: "/srv/storage/media",
-      destination_path: "artem-g-drive:homelab-backup/media",
-      schedule: "weekly sun 05:00",
-      flags: "--checksum --transfers 2 --bwlimit 5M",
-      description: "Фільми та серіали з MEDIA диска. Щотижневий бекап.",
-    },
-  ];
-
-  const insertJob = db.prepare(`
-    INSERT INTO jobs (name, type, source_path, destination_path, schedule, flags, description)
-    VALUES (@name, @type, @source_path, @destination_path, @schedule, @flags, @description)
-  `);
-
-  const insertRun = db.prepare(`
-    INSERT INTO runs (job_id, status, started_at, finished_at, duration_seconds, bytes_transferred, files_transferred, errors_count, short_summary, log_excerpt)
-    VALUES (@job_id, @status, @started_at, @finished_at, @duration_seconds, @bytes_transferred, @files_transferred, @errors_count, @short_summary, @log_excerpt)
-  `);
+  // Check if settings exist — if yes, already seeded
+  const settingsCount = (db.prepare("SELECT COUNT(*) as count FROM settings").get() as { count: number }).count;
+  if (settingsCount > 0) return;
 
   const transaction = db.transaction(() => {
-    for (const job of jobs) {
-      insertJob.run(job);
-    }
-
-    // Create some example runs for realistic dashboard
-    const sampleRuns = [
-      {
-        job_id: 1, status: "success",
-        started_at: new Date(now.getTime() - 2 * 3600000).toISOString(),
-        finished_at: new Date(now.getTime() - 2 * 3600000 + 1080000).toISOString(),
-        duration_seconds: 1080, bytes_transferred: 13958643712, files_transferred: 2847,
-        errors_count: 0, short_summary: "Transferred 13.0 GB, 2847 files. No errors.",
-        log_excerpt: "2026/02/08 02:00:01 INFO  : Starting rclone copy\n2026/02/08 02:18:00 INFO  : Transferred: 13.0 GiB (12.3 MiB/s)\n2026/02/08 02:18:00 INFO  : Checks: 2847 / 2847, 100%\n2026/02/08 02:18:00 INFO  : Transferred: 128 / 128, 100%\nElapsed time: 18m0.1s",
-      },
-      {
-        job_id: 2, status: "success",
-        started_at: new Date(now.getTime() - 1 * 3600000).toISOString(),
-        finished_at: new Date(now.getTime() - 1 * 3600000 + 2700000).toISOString(),
-        duration_seconds: 2700, bytes_transferred: 45097156608, files_transferred: 12543,
-        errors_count: 0, short_summary: "Transferred 42.0 GB, 12543 files. No errors.",
-        log_excerpt: "2026/02/08 03:00:01 INFO  : Starting rclone copy\n2026/02/08 03:45:00 INFO  : Transferred: 42.0 GiB (15.9 MiB/s)\n2026/02/08 03:45:00 INFO  : Checks: 12543 / 12543, 100%\nElapsed time: 45m0.2s",
-      },
-      {
-        job_id: 3, status: "failure",
-        started_at: new Date(now.getTime() - 0.5 * 3600000).toISOString(),
-        finished_at: new Date(now.getTime() - 0.5 * 3600000 + 15000).toISOString(),
-        duration_seconds: 15, bytes_transferred: 0, files_transferred: 0,
-        errors_count: 1, short_summary: "Failed: pg_dump connection refused. Check Immich Postgres container.",
-        log_excerpt: "2026/02/08 04:00:01 ERROR : pg_dump: connection to server at \"127.0.0.1\", port 5432 failed: Connection refused\n\tIs the server running on that host and accepting TCP/IP connections?\n2026/02/08 04:00:15 ERROR : Job failed after 15s",
-      },
-      {
-        job_id: 1, status: "success",
-        started_at: new Date(now.getTime() - 26 * 3600000).toISOString(),
-        finished_at: new Date(now.getTime() - 26 * 3600000 + 960000).toISOString(),
-        duration_seconds: 960, bytes_transferred: 13421772800, files_transferred: 2831,
-        errors_count: 0, short_summary: "Transferred 12.5 GB, 2831 files. No errors.",
-        log_excerpt: "2026/02/07 02:00:01 INFO  : Starting rclone copy\n2026/02/07 02:16:00 INFO  : Transferred: 12.5 GiB\nElapsed time: 16m0.3s",
-      },
-      {
-        job_id: 2, status: "success",
-        started_at: new Date(now.getTime() - 25 * 3600000).toISOString(),
-        finished_at: new Date(now.getTime() - 25 * 3600000 + 2400000).toISOString(),
-        duration_seconds: 2400, bytes_transferred: 42949672960, files_transferred: 12501,
-        errors_count: 0, short_summary: "Transferred 40.0 GB, 12501 files. No errors.",
-        log_excerpt: "2026/02/07 03:00:01 INFO  : Starting rclone copy\n2026/02/07 03:40:00 INFO  : Transferred: 40.0 GiB\nElapsed time: 40m0.1s",
-      },
-      {
-        job_id: 3, status: "success",
-        started_at: new Date(now.getTime() - 24 * 3600000).toISOString(),
-        finished_at: new Date(now.getTime() - 24 * 3600000 + 45000).toISOString(),
-        duration_seconds: 45, bytes_transferred: 52428800, files_transferred: 1,
-        errors_count: 0, short_summary: "DB dump created and uploaded. 50 MB.",
-        log_excerpt: "2026/02/07 04:00:01 INFO  : pg_dump completed\n2026/02/07 04:00:30 INFO  : Uploaded immich-db-20260207.sql (50 MB)\nElapsed time: 45s",
-      },
-      {
-        job_id: 4, status: "success",
-        started_at: new Date(now.getTime() - 72 * 3600000).toISOString(),
-        finished_at: new Date(now.getTime() - 72 * 3600000 + 7200000).toISOString(),
-        duration_seconds: 7200, bytes_transferred: 63350767616, files_transferred: 145,
-        errors_count: 0, short_summary: "Transferred 59.0 GB, 145 files. Weekly backup complete.",
-        log_excerpt: "2026/02/05 05:00:01 INFO  : Starting weekly rclone copy\n2026/02/05 07:00:00 INFO  : Transferred: 59.0 GiB\nElapsed time: 2h0m0.5s",
-      },
-    ];
-
-    for (const run of sampleRuns) {
-      insertRun.run(run);
-    }
-
-    // Default settings
+    // Default settings — all empty, user fills in via UI
+    // Telegram
     setSetting("telegram_bot_token", "");
     setSetting("telegram_chat_id", "");
     setSetting("telegram_enabled", "false");
     setSetting("notify_on_failure", "true");
     setSetting("notify_on_success", "false");
     setSetting("notify_daily_digest", "true");
-    setSetting("rclone_config_path", "/home/artem/.config/rclone/rclone.conf");
+
+    // Rclone
+    setSetting("rclone_remote_name", "");
+    setSetting("rclone_config_path", "");
+    setSetting("gdrive_backup_folder", "");
+    setSetting("max_bandwidth", "10M");
+
+    // Server info (user fills in)
+    setSetting("server_hostname", "");
+    setSetting("server_cpu", "");
+    setSetting("server_ram", "");
+    setSetting("server_docker_ip", "");
+    setSetting("server_tailscale_ip", "");
+    setSetting("server_proxmox_ip", "");
+
+    // Storage paths
+    setSetting("path_nextcloud_data", "");
+    setSetting("path_immich_data", "");
+    setSetting("path_immich_db_backups", "");
+    setSetting("path_media_library", "");
+
+    // Disk config (JSON array, user fills via UI)
+    setSetting("disks_config", "[]");
+
+    // Scheduling
     setSetting("blackout_start", "18:00");
     setSetting("blackout_end", "23:00");
     setSetting("max_concurrent_jobs", "1");
-    setSetting("max_bandwidth", "10M");
   });
 
   transaction();

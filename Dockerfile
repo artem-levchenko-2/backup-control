@@ -1,6 +1,6 @@
 # ============================================================
 # Backup Control — Homelab Panel
-# Multi-stage Docker build for Next.js + SQLite + rclone
+# Multi-stage Docker build for Next.js + SQLite
 # ============================================================
 
 # ── Stage 1: Install dependencies ────────────────────────────
@@ -28,19 +28,22 @@ ENV NODE_ENV=production
 ENV HOSTNAME=0.0.0.0
 ENV PORT=3000
 
-# Install rclone
-RUN apk add --no-cache rclone
+# Create non-root user
+RUN addgroup --system --gid 1001 nodejs && \
+    adduser --system --uid 1001 nextjs
 
 # Copy standalone build
 COPY --from=builder /app/.next/standalone ./
 COPY --from=builder /app/.next/static ./.next/static
 COPY --from=builder /app/public ./public
 
-# Create data directory for SQLite
-RUN mkdir -p /app/data
+# Create data directory for SQLite and set ownership
+RUN mkdir -p /app/data && chown -R nextjs:nodejs /app/data
 
 # Volume for persistent SQLite database
 VOLUME /app/data
+
+USER nextjs
 
 EXPOSE 3000
 

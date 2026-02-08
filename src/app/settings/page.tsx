@@ -13,23 +13,53 @@ import {
   MessageCircle,
   Shield,
   Clock,
-  Gauge,
   FolderOpen,
+  Server,
+  HardDrive,
+  FolderTree,
+  Plus,
+  Trash2,
 } from "lucide-react";
 import { toast } from "sonner";
 
+interface DiskEntry {
+  mount: string;
+  label: string;
+  total_gb: number;
+  used_gb: number;
+}
+
 interface SettingsState {
+  // Telegram
   telegram_bot_token: string;
   telegram_chat_id: string;
   telegram_enabled: string;
   notify_on_failure: string;
   notify_on_success: string;
   notify_daily_digest: string;
+  // Rclone
+  rclone_remote_name: string;
   rclone_config_path: string;
+  gdrive_backup_folder: string;
+  max_bandwidth: string;
+  // Server
+  server_hostname: string;
+  server_cpu: string;
+  server_ram: string;
+  server_docker_ip: string;
+  server_tailscale_ip: string;
+  server_proxmox_ip: string;
+  // Storage paths
+  path_nextcloud_data: string;
+  path_immich_data: string;
+  path_immich_db_backups: string;
+  path_media_library: string;
+  // Disks
+  disks_config: string;
+  // Scheduling
   blackout_start: string;
   blackout_end: string;
   max_concurrent_jobs: string;
-  max_bandwidth: string;
 }
 
 const defaultSettings: SettingsState = {
@@ -39,15 +69,29 @@ const defaultSettings: SettingsState = {
   notify_on_failure: "true",
   notify_on_success: "false",
   notify_daily_digest: "true",
+  rclone_remote_name: "",
   rclone_config_path: "",
+  gdrive_backup_folder: "",
+  max_bandwidth: "10M",
+  server_hostname: "",
+  server_cpu: "",
+  server_ram: "",
+  server_docker_ip: "",
+  server_tailscale_ip: "",
+  server_proxmox_ip: "",
+  path_nextcloud_data: "",
+  path_immich_data: "",
+  path_immich_db_backups: "",
+  path_media_library: "",
+  disks_config: "[]",
   blackout_start: "18:00",
   blackout_end: "23:00",
   max_concurrent_jobs: "1",
-  max_bandwidth: "10M",
 };
 
 export default function SettingsPage() {
   const [settings, setSettings] = useState<SettingsState>(defaultSettings);
+  const [disks, setDisks] = useState<DiskEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
 
@@ -55,7 +99,14 @@ export default function SettingsPage() {
     try {
       const res = await fetch("/api/settings");
       const data = await res.json();
-      setSettings({ ...defaultSettings, ...data });
+      const merged = { ...defaultSettings, ...data };
+      setSettings(merged);
+      try {
+        const parsed = JSON.parse(merged.disks_config || "[]");
+        setDisks(Array.isArray(parsed) ? parsed : []);
+      } catch {
+        setDisks([]);
+      }
     } catch (e) {
       console.error("Failed to fetch settings", e);
     } finally {
@@ -70,10 +121,14 @@ export default function SettingsPage() {
   const handleSave = async () => {
     setSaving(true);
     try {
+      const payload = {
+        ...settings,
+        disks_config: JSON.stringify(disks),
+      };
       await fetch("/api/settings", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(settings),
+        body: JSON.stringify(payload),
       });
       toast.success("Settings saved successfully");
     } catch {
@@ -94,6 +149,18 @@ export default function SettingsPage() {
     }));
   };
 
+  const addDisk = () => {
+    setDisks((prev) => [...prev, { mount: "", label: "", total_gb: 0, used_gb: 0 }]);
+  };
+
+  const updateDisk = (index: number, field: keyof DiskEntry, value: string | number) => {
+    setDisks((prev) => prev.map((d, i) => i === index ? { ...d, [field]: value } : d));
+  };
+
+  const removeDisk = (index: number) => {
+    setDisks((prev) => prev.filter((_, i) => i !== index));
+  };
+
   if (loading) {
     return (
       <div className="flex items-center justify-center h-screen">
@@ -109,7 +176,7 @@ export default function SettingsPage() {
         <div>
           <h1 className="text-2xl font-bold tracking-tight">Settings</h1>
           <p className="text-sm text-muted-foreground mt-1">
-            Configure notifications, rclone, and system behaviour
+            All configuration is stored here — code on GitHub stays clean
           </p>
         </div>
         <Button onClick={handleSave} disabled={saving}>
@@ -122,7 +189,254 @@ export default function SettingsPage() {
         </Button>
       </div>
 
-      {/* Telegram */}
+      {/* ── Server Info ──────────────────────────────────────── */}
+      <Card>
+        <CardHeader>
+          <div className="flex items-center gap-2">
+            <Server className="w-5 h-5 text-cyan-500" />
+            <div>
+              <CardTitle className="text-base">Server Info</CardTitle>
+              <CardDescription>Your homelab hardware and network info (shown on Dashboard)</CardDescription>
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="grid grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <Label>Hostname / Model</Label>
+              <Input
+                value={settings.server_hostname}
+                onChange={(e) => update("server_hostname", e.target.value)}
+                placeholder="HP ProDesk 600 G5"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>CPU</Label>
+              <Input
+                value={settings.server_cpu}
+                onChange={(e) => update("server_cpu", e.target.value)}
+                placeholder="i7-9700"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>RAM</Label>
+              <Input
+                value={settings.server_ram}
+                onChange={(e) => update("server_ram", e.target.value)}
+                placeholder="24 GB DDR4"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>Docker VM IP</Label>
+              <Input
+                value={settings.server_docker_ip}
+                onChange={(e) => update("server_docker_ip", e.target.value)}
+                placeholder="192.168.3.200"
+                className="font-mono text-sm"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>Proxmox IP</Label>
+              <Input
+                value={settings.server_proxmox_ip}
+                onChange={(e) => update("server_proxmox_ip", e.target.value)}
+                placeholder="192.168.3.197"
+                className="font-mono text-sm"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>Tailscale IP</Label>
+              <Input
+                value={settings.server_tailscale_ip}
+                onChange={(e) => update("server_tailscale_ip", e.target.value)}
+                placeholder="100.x.x.x"
+                className="font-mono text-sm"
+              />
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* ── Storage Paths ────────────────────────────────────── */}
+      <Card>
+        <CardHeader>
+          <div className="flex items-center gap-2">
+            <FolderTree className="w-5 h-5 text-amber-500" />
+            <div>
+              <CardTitle className="text-base">Storage Paths</CardTitle>
+              <CardDescription>Source directories on your server (used when creating backup jobs)</CardDescription>
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="space-y-2">
+            <Label>Nextcloud Datadir</Label>
+            <Input
+              value={settings.path_nextcloud_data}
+              onChange={(e) => update("path_nextcloud_data", e.target.value)}
+              placeholder="/mnt/toshiba/nextcloud-data"
+              className="font-mono text-sm"
+            />
+          </div>
+          <div className="space-y-2">
+            <Label>Immich Data (uploads, library)</Label>
+            <Input
+              value={settings.path_immich_data}
+              onChange={(e) => update("path_immich_data", e.target.value)}
+              placeholder="/srv/storage/transcend/immich"
+              className="font-mono text-sm"
+            />
+          </div>
+          <div className="space-y-2">
+            <Label>Immich DB Backups</Label>
+            <Input
+              value={settings.path_immich_db_backups}
+              onChange={(e) => update("path_immich_db_backups", e.target.value)}
+              placeholder="/srv/storage/transcend/immich/backups"
+              className="font-mono text-sm"
+            />
+          </div>
+          <div className="space-y-2">
+            <Label>Media Library (movies/series)</Label>
+            <Input
+              value={settings.path_media_library}
+              onChange={(e) => update("path_media_library", e.target.value)}
+              placeholder="/srv/storage/media"
+              className="font-mono text-sm"
+            />
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* ── Disk Usage Config ────────────────────────────────── */}
+      <Card>
+        <CardHeader>
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <HardDrive className="w-5 h-5 text-violet-500" />
+              <div>
+                <CardTitle className="text-base">Disk Usage</CardTitle>
+                <CardDescription>Disks shown on Dashboard (add your server mounts)</CardDescription>
+              </div>
+            </div>
+            <Button variant="outline" size="sm" onClick={addDisk}>
+              <Plus className="w-4 h-4 mr-1" /> Add Disk
+            </Button>
+          </div>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {disks.length === 0 && (
+            <p className="text-sm text-muted-foreground text-center py-2">
+              No disks configured. Click "Add Disk" to add your server mounts.
+            </p>
+          )}
+          {disks.map((disk, i) => (
+            <div key={i} className="grid grid-cols-[1fr_1fr_80px_80px_auto] gap-2 items-end">
+              <div className="space-y-1">
+                <Label className="text-xs text-muted-foreground">Mount point</Label>
+                <Input
+                  value={disk.mount}
+                  onChange={(e) => updateDisk(i, "mount", e.target.value)}
+                  placeholder="/srv/storage"
+                  className="font-mono text-sm"
+                />
+              </div>
+              <div className="space-y-1">
+                <Label className="text-xs text-muted-foreground">Label</Label>
+                <Input
+                  value={disk.label}
+                  onChange={(e) => updateDisk(i, "label", e.target.value)}
+                  placeholder="MEDIA"
+                />
+              </div>
+              <div className="space-y-1">
+                <Label className="text-xs text-muted-foreground">Total GB</Label>
+                <Input
+                  type="number"
+                  value={disk.total_gb || ""}
+                  onChange={(e) => updateDisk(i, "total_gb", Number(e.target.value))}
+                />
+              </div>
+              <div className="space-y-1">
+                <Label className="text-xs text-muted-foreground">Used GB</Label>
+                <Input
+                  type="number"
+                  value={disk.used_gb || ""}
+                  onChange={(e) => updateDisk(i, "used_gb", Number(e.target.value))}
+                />
+              </div>
+              <Button variant="ghost" size="sm" onClick={() => removeDisk(i)} className="mb-0.5">
+                <Trash2 className="w-4 h-4 text-muted-foreground" />
+              </Button>
+            </div>
+          ))}
+        </CardContent>
+      </Card>
+
+      {/* ── Rclone ───────────────────────────────────────────── */}
+      <Card>
+        <CardHeader>
+          <div className="flex items-center gap-2">
+            <FolderOpen className="w-5 h-5 text-emerald-500" />
+            <div>
+              <CardTitle className="text-base">Rclone Configuration</CardTitle>
+              <CardDescription>Google Drive remote settings for backup jobs</CardDescription>
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="space-y-2">
+            <Label>Remote Name</Label>
+            <Input
+              value={settings.rclone_remote_name}
+              onChange={(e) => update("rclone_remote_name", e.target.value)}
+              placeholder="artem-g-drive"
+              className="font-mono text-sm"
+            />
+            <p className="text-[11px] text-muted-foreground">
+              The name you gave when running <code className="bg-accent px-1 rounded">rclone config</code> (check with <code className="bg-accent px-1 rounded">rclone listremotes</code>)
+            </p>
+          </div>
+          <div className="space-y-2">
+            <Label>Config File Path</Label>
+            <Input
+              value={settings.rclone_config_path}
+              onChange={(e) => update("rclone_config_path", e.target.value)}
+              placeholder="/home/artem/.config/rclone/rclone.conf"
+              className="font-mono text-sm"
+            />
+            <p className="text-[11px] text-muted-foreground">
+              Find with <code className="bg-accent px-1 rounded">rclone config file</code> on your server
+            </p>
+          </div>
+          <div className="space-y-2">
+            <Label>Google Drive Backup Folder</Label>
+            <Input
+              value={settings.gdrive_backup_folder}
+              onChange={(e) => update("gdrive_backup_folder", e.target.value)}
+              placeholder="homelab-backup"
+              className="font-mono text-sm"
+            />
+            <p className="text-[11px] text-muted-foreground">
+              Root folder on Google Drive for all backups. Jobs will use <code className="bg-accent px-1 rounded">remote:folder/subfolder</code>
+            </p>
+          </div>
+          <div className="space-y-2">
+            <Label>Max Bandwidth</Label>
+            <Input
+              value={settings.max_bandwidth}
+              onChange={(e) => update("max_bandwidth", e.target.value)}
+              placeholder="10M"
+              className="font-mono text-sm"
+            />
+            <p className="text-[11px] text-muted-foreground">
+              Limit upload speed (e.g. 10M = 10 MB/s). Leave empty for no limit.
+            </p>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* ── Telegram ─────────────────────────────────────────── */}
       <Card>
         <CardHeader>
           <div className="flex items-center gap-2">
@@ -135,18 +449,16 @@ export default function SettingsPage() {
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="flex items-center justify-between">
-            <Label htmlFor="tg-enabled">Enable Telegram</Label>
+            <Label>Enable Telegram</Label>
             <Switch
-              id="tg-enabled"
               checked={settings.telegram_enabled === "true"}
               onCheckedChange={() => toggleBool("telegram_enabled")}
             />
           </div>
           <Separator />
           <div className="space-y-2">
-            <Label htmlFor="tg-token">Bot Token</Label>
+            <Label>Bot Token</Label>
             <Input
-              id="tg-token"
               type="password"
               value={settings.telegram_bot_token}
               onChange={(e) => update("telegram_bot_token", e.target.value)}
@@ -154,20 +466,19 @@ export default function SettingsPage() {
               className="font-mono text-sm"
             />
             <p className="text-[11px] text-muted-foreground">
-              Create a bot via @BotFather in Telegram and paste the token here
+              Create via @BotFather in Telegram
             </p>
           </div>
           <div className="space-y-2">
-            <Label htmlFor="tg-chat">Chat ID</Label>
+            <Label>Chat ID</Label>
             <Input
-              id="tg-chat"
               value={settings.telegram_chat_id}
               onChange={(e) => update("telegram_chat_id", e.target.value)}
               placeholder="-1001234567890"
               className="font-mono text-sm"
             />
             <p className="text-[11px] text-muted-foreground">
-              Your personal or group chat ID. Use @userinfobot to find it
+              Find via @userinfobot in Telegram
             </p>
           </div>
           <Separator />
@@ -188,7 +499,7 @@ export default function SettingsPage() {
               />
             </div>
             <div className="flex items-center justify-between">
-              <Label className="text-sm text-muted-foreground">Daily Digest (summary once a day)</Label>
+              <Label className="text-sm text-muted-foreground">Daily Digest</Label>
               <Switch
                 checked={settings.notify_daily_digest === "true"}
                 onCheckedChange={() => toggleBool("notify_daily_digest")}
@@ -198,45 +509,7 @@ export default function SettingsPage() {
         </CardContent>
       </Card>
 
-      {/* Rclone */}
-      <Card>
-        <CardHeader>
-          <div className="flex items-center gap-2">
-            <FolderOpen className="w-5 h-5 text-emerald-500" />
-            <div>
-              <CardTitle className="text-base">Rclone Configuration</CardTitle>
-              <CardDescription>Path to your rclone config file with Google Drive remote</CardDescription>
-            </div>
-          </div>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="space-y-2">
-            <Label htmlFor="rclone-path">Config Path</Label>
-            <Input
-              id="rclone-path"
-              value={settings.rclone_config_path}
-              onChange={(e) => update("rclone_config_path", e.target.value)}
-              placeholder="/home/user/.config/rclone/rclone.conf"
-              className="font-mono text-sm"
-            />
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor="bandwidth">Max Bandwidth</Label>
-            <Input
-              id="bandwidth"
-              value={settings.max_bandwidth}
-              onChange={(e) => update("max_bandwidth", e.target.value)}
-              placeholder="10M"
-              className="font-mono text-sm"
-            />
-            <p className="text-[11px] text-muted-foreground">
-              Limit upload speed (e.g. 10M = 10 MB/s). Leave empty for no limit
-            </p>
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* Scheduling */}
+      {/* ── Scheduling ───────────────────────────────────────── */}
       <Card>
         <CardHeader>
           <div className="flex items-center gap-2">
@@ -249,9 +522,8 @@ export default function SettingsPage() {
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="space-y-2">
-            <Label htmlFor="concurrent">Max Concurrent Jobs</Label>
+            <Label>Max Concurrent Jobs</Label>
             <Input
-              id="concurrent"
               type="number"
               min="1"
               max="4"
@@ -259,9 +531,6 @@ export default function SettingsPage() {
               onChange={(e) => update("max_concurrent_jobs", e.target.value)}
               className="w-24"
             />
-            <p className="text-[11px] text-muted-foreground">
-              How many jobs can run at the same time (recommended: 1)
-            </p>
           </div>
           <Separator />
           <div className="space-y-3">
@@ -294,7 +563,7 @@ export default function SettingsPage() {
         </CardContent>
       </Card>
 
-      {/* System Info */}
+      {/* ── About ────────────────────────────────────────────── */}
       <Card>
         <CardHeader>
           <div className="flex items-center gap-2">
@@ -308,19 +577,15 @@ export default function SettingsPage() {
         <CardContent className="space-y-2 text-sm">
           <div className="flex justify-between">
             <span className="text-muted-foreground">Version</span>
-            <span className="font-mono">MVP 1.0.0</span>
+            <span className="font-mono">MVP 1.1.0</span>
           </div>
           <div className="flex justify-between">
             <span className="text-muted-foreground">Database</span>
             <span className="font-mono">SQLite (data/backup-control.db)</span>
           </div>
           <div className="flex justify-between">
-            <span className="text-muted-foreground">Framework</span>
-            <span className="font-mono">Next.js + shadcn/ui</span>
-          </div>
-          <div className="flex justify-between">
-            <span className="text-muted-foreground">Planned URL</span>
-            <span className="font-mono">backup.home.arpa</span>
+            <span className="text-muted-foreground">Config</span>
+            <span className="font-mono">Stored in DB, not in code</span>
           </div>
         </CardContent>
       </Card>

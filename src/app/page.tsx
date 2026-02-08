@@ -310,36 +310,53 @@ export default function DashboardPage() {
             </CardContent>
           </Card>
 
-          {/* Quick Actions */}
+          {/* Server Info (from settings) */}
           <Card>
             <CardHeader className="pb-3">
               <CardTitle className="text-base">Server Info</CardTitle>
             </CardHeader>
             <CardContent className="space-y-3 text-sm">
-              <div className="flex justify-between">
-                <span className="text-muted-foreground">Host</span>
-                <span className="font-mono text-xs">HP ProDesk 600 G5</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-muted-foreground">CPU</span>
-                <span className="font-mono text-xs">i7-9700</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-muted-foreground">RAM</span>
-                <span className="font-mono text-xs">24 GB DDR4</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-muted-foreground">Docker VM IP</span>
-                <span className="font-mono text-xs">192.168.3.200</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-muted-foreground">Tailscale IP</span>
-                <span className="font-mono text-xs">100.122.120.47</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-muted-foreground">Proxmox</span>
-                <span className="font-mono text-xs">192.168.3.197</span>
-              </div>
+              {stats.server_info?.server_hostname && (
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Host</span>
+                  <span className="font-mono text-xs">{stats.server_info.server_hostname}</span>
+                </div>
+              )}
+              {stats.server_info?.server_cpu && (
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">CPU</span>
+                  <span className="font-mono text-xs">{stats.server_info.server_cpu}</span>
+                </div>
+              )}
+              {stats.server_info?.server_ram && (
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">RAM</span>
+                  <span className="font-mono text-xs">{stats.server_info.server_ram}</span>
+                </div>
+              )}
+              {stats.server_info?.server_docker_ip && (
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Docker VM IP</span>
+                  <span className="font-mono text-xs">{stats.server_info.server_docker_ip}</span>
+                </div>
+              )}
+              {stats.server_info?.server_tailscale_ip && (
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Tailscale IP</span>
+                  <span className="font-mono text-xs">{stats.server_info.server_tailscale_ip}</span>
+                </div>
+              )}
+              {stats.server_info?.server_proxmox_ip && (
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Proxmox</span>
+                  <span className="font-mono text-xs">{stats.server_info.server_proxmox_ip}</span>
+                </div>
+              )}
+              {!stats.server_info?.server_hostname && !stats.server_info?.server_docker_ip && (
+                <p className="text-xs text-muted-foreground text-center py-2">
+                  Configure in Settings → Server Info
+                </p>
+              )}
             </CardContent>
           </Card>
         </div>

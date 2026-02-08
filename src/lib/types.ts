@@ -73,6 +73,7 @@ export interface DashboardStats {
   disks: DiskInfo[];
   recent_runs: Run[];
   jobs_with_last_run: JobWithLastRun[];
+  server_info: Record<string, string>;
 }
 
 export interface DiskInfo {

@@ -1,8 +1,11 @@
 # ============================================================
 # Backup Control — Portainer Stack (GitHub deployment)
 # ============================================================
-# Image збирається автоматично через GitHub Actions → GHCR
-# rclone конфіг та дані монтуються з хостової системи
+# Цей файл використовується Portainer для деплою з GitHub.
+# Image збирається автоматично через GitHub Actions і пушиться
+# в GitHub Container Registry (ghcr.io).
+#
+# Image автоматично збирається GitHub Actions і пушиться в GHCR
 # ============================================================
 
 services:
@@ -13,23 +16,10 @@ services:
     ports:
       - "3100:3000"
     volumes:
-      # Persistent SQLite database
       - backup-control-data:/app/data
-      # rclone config from host
-      - /home/artem/.config/rclone:/root/.config/rclone:ro
-      # Source data directories (read-only)
-      - /mnt/toshiba:/mnt/toshiba:ro
-      - /srv/storage/transcend:/srv/storage/transcend:ro
-      - /srv/storage/media:/srv/storage/media:ro
-      - /srv/storage:/srv/storage:ro
-      # Logs
-      - backup-control-logs:/app/logs
     environment:
       - NODE_ENV=production
-      - RCLONE_CONFIG=/root/.config/rclone/rclone.conf
 
 volumes:
   backup-control-data:
-    driver: local
-  backup-control-logs:
     driver: local

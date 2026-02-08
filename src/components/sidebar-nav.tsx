@@ -61,7 +61,7 @@ export function SidebarNav() {
       <div className="px-4 py-4 border-t border-border">
         <div className="flex items-center gap-2 text-xs text-muted-foreground">
           <HardDrive className="w-3.5 h-3.5" />
-          <span>192.168.3.200</span>
+          <span>Homelab Server</span>
           <span className="ml-auto flex items-center gap-1">
             <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
             Online
