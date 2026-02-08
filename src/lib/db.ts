@@ -273,6 +273,8 @@ export function getDashboardStats(): DashboardStats {
           const mount = entry.mount || "";
           const label = entry.label || mount;
           try {
+            // Check path exists first
+            fs.accessSync(mount, fs.constants.R_OK);
             const stats = fs.statfsSync(mount);
             const blockSize = stats.bsize;
             const totalBytes = stats.blocks * blockSize;
@@ -282,9 +284,12 @@ export function getDashboardStats(): DashboardStats {
             const usedGb = Math.round((usedBytes / (1024 ** 3)) * 10) / 10;
             const freeGb = Math.round((freeBytes / (1024 ** 3)) * 10) / 10;
             const usagePercent = totalBytes > 0 ? Math.round((usedBytes / totalBytes) * 100) : 0;
+            console.log(`[disk] ${mount} (${label}): ${usedGb}/${totalGb} GB (${usagePercent}%)`);
             disks.push({ mount, label, total_gb: totalGb, used_gb: usedGb, free_gb: freeGb, usage_percent: usagePercent });
-          } catch {
+          } catch (err: unknown) {
             // Path not mounted or inaccessible — show N/A values
+            const errMsg = err instanceof Error ? err.message : String(err);
+            console.error(`[disk] statfs failed for "${mount}": ${errMsg}`);
             disks.push({ mount, label, total_gb: 0, used_gb: 0, free_gb: 0, usage_percent: 0 });
           }
         }
