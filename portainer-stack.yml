@@ -1,0 +1,25 @@
+# ============================================================
+# Backup Control — Portainer Stack (GitHub deployment)
+# ============================================================
+# Цей файл використовується Portainer для деплою з GitHub.
+# Image збирається автоматично через GitHub Actions і пушиться
+# в GitHub Container Registry (ghcr.io).
+#
+# Image автоматично збирається GitHub Actions і пушиться в GHCR
+# ============================================================
+
+services:
+  backup-control:
+    image: ghcr.io/artem-levchenko-2/backup-control:latest
+    container_name: backup-control
+    restart: unless-stopped
+    ports:
+      - "3100:3000"
+    volumes:
+      - backup-control-data:/app/data
+    environment:
+      - NODE_ENV=production
+
+volumes:
+  backup-control-data:
+    driver: local

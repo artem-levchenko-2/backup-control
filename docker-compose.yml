@@ -1,0 +1,29 @@
+# ============================================================
+# Backup Control — Portainer Stack
+# ============================================================
+# Використання:
+#   1. Скопіюй папку 'app' на сервер (192.168.3.200)
+#   2. В Portainer → Stacks → Add stack → Upload/Git
+#   3. Або: docker compose up -d --build
+# ============================================================
+
+services:
+  backup-control:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: backup-control
+    restart: unless-stopped
+    ports:
+      - "3100:3000"
+    volumes:
+      # Persistent SQLite database
+      - backup-control-data:/app/data
+    environment:
+      - NODE_ENV=production
+    labels:
+      - "com.centurylinklabs.watchtower.enable=false"
+
+volumes:
+  backup-control-data:
+    driver: local
