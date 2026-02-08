@@ -14,7 +14,6 @@ import {
 import {
   CheckCircle2,
   XCircle,
-  Clock,
   HardDrive,
   ArrowUpDown,
   Activity,
@@ -23,7 +22,10 @@ import {
   AlertTriangle,
   FileText,
   Loader2,
+  Square,
+  Ban,
 } from "lucide-react";
+import { toast } from "sonner";
 import type { DashboardStats, Run, RunStatus } from "@/lib/types";
 
 function formatBytes(bytes: number): string {
@@ -78,6 +80,7 @@ export default function DashboardPage() {
   const [selectedRun, setSelectedRun] = useState<Run | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [loadingRun, setLoadingRun] = useState(false);
+  const [stoppingRuns, setStoppingRuns] = useState<Set<number>>(new Set());
 
   const fetchStats = useCallback(async () => {
     try {
@@ -110,6 +113,35 @@ export default function DashboardPage() {
     }, 3000);
     return () => clearInterval(interval);
   }, [selectedRun, dialogOpen]);
+
+  const handleStopRun = async (runId: number, e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+    setStoppingRuns((prev) => new Set(prev).add(runId));
+    try {
+      const res = await fetch(`/api/runs/${runId}/stop`, { method: "POST" });
+      const data = await res.json();
+      if (res.ok) {
+        toast.success(data.message || "Stop signal sent");
+        // Refresh after a moment
+        setTimeout(() => {
+          fetchStats();
+          if (selectedRun?.id === runId) {
+            fetch(`/api/runs/${runId}`).then(r => r.json()).then(setSelectedRun).catch(() => {});
+          }
+        }, 2000);
+      } else {
+        toast.error(data.error || "Failed to stop");
+      }
+    } catch {
+      toast.error("Network error");
+    } finally {
+      setStoppingRuns((prev) => {
+        const next = new Set(prev);
+        next.delete(runId);
+        return next;
+      });
+    }
+  };
 
   const openRunDetail = async (runId: number) => {
     setLoadingRun(true);
@@ -264,27 +296,34 @@ export default function DashboardPage() {
                         </div>
                       </div>
 
-                      {/* Live progress bar for running jobs */}
+                      {/* Live stats for running jobs */}
                       {isRunning && (
-                        <div className="mt-3 space-y-1.5">
-                          <div className="flex items-center gap-2">
-                            <Loader2 className="w-3 h-3 text-blue-500 animate-spin flex-shrink-0" />
-                            <p className="text-xs text-blue-400 truncate">
-                              {job.last_run_summary || "Starting..."}
-                            </p>
-                          </div>
-                          <div className="w-full bg-accent rounded-full h-1.5 overflow-hidden">
-                            <div className="h-full bg-blue-500 rounded-full animate-pulse" style={{ width: "100%" }} />
-                          </div>
+                        <div className="mt-3 flex items-center gap-3">
+                          <Loader2 className="w-3.5 h-3.5 text-blue-500 animate-spin flex-shrink-0" />
+                          <p className="text-xs text-blue-400 flex-1 truncate">
+                            {job.last_run_summary || "Starting..."}
+                          </p>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-7 px-2 text-red-400 hover:text-red-300 hover:bg-red-500/10 flex-shrink-0"
+                            disabled={stoppingRuns.has(job.last_run_id!)}
+                            onClick={(e) => handleStopRun(job.last_run_id!, e)}
+                          >
+                            {stoppingRuns.has(job.last_run_id!) ? (
+                              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                            ) : (
+                              <Square className="w-3.5 h-3.5 mr-1" />
+                            )}
+                            Stop
+                          </Button>
                         </div>
                       )}
 
                       {/* Compact summary for completed jobs */}
-                      {!isRunning && job.last_run_summary && job.last_run_status && (
-                        <p className="mt-2 text-[11px] text-muted-foreground truncate pl-6.5">
-                          {job.last_run_bytes != null && job.last_run_bytes > 0 && (
-                            <span>{formatBytes(job.last_run_bytes)}, {job.last_run_files} files</span>
-                          )}
+                      {!isRunning && job.last_run_bytes != null && job.last_run_bytes > 0 && (
+                        <p className="mt-2 text-[11px] text-muted-foreground truncate ml-6">
+                          {formatBytes(job.last_run_bytes)}, {job.last_run_files} files
                         </p>
                       )}
                     </div>
@@ -314,6 +353,8 @@ export default function DashboardPage() {
                       <CheckCircle2 className="w-4 h-4 text-emerald-500 flex-shrink-0" />
                     ) : run.status === "failure" ? (
                       <XCircle className="w-4 h-4 text-red-500 flex-shrink-0" />
+                    ) : run.status === "cancelled" ? (
+                      <Ban className="w-4 h-4 text-yellow-500 flex-shrink-0" />
                     ) : (
                       <Loader2 className="w-4 h-4 text-blue-500 flex-shrink-0 animate-spin" />
                     )}
@@ -446,6 +487,8 @@ export default function DashboardPage() {
                     <CheckCircle2 className="w-5 h-5 text-emerald-500" />
                   ) : selectedRun.status === "failure" ? (
                     <XCircle className="w-5 h-5 text-red-500" />
+                  ) : selectedRun.status === "cancelled" ? (
+                    <Ban className="w-5 h-5 text-yellow-500" />
                   ) : (
                     <Loader2 className="w-5 h-5 text-blue-500 animate-spin" />
                   )}
@@ -484,16 +527,25 @@ export default function DashboardPage() {
                 </div>
               </div>
 
-              {/* Running Progress */}
+              {/* Running Status + Stop */}
               {selectedRun.status === "running" && (
-                <div className="space-y-2">
-                  <div className="flex items-center gap-2">
-                    <Loader2 className="w-3.5 h-3.5 text-blue-500 animate-spin" />
-                    <p className="text-sm text-blue-400">{selectedRun.short_summary}</p>
-                  </div>
-                  <div className="w-full bg-accent rounded-full h-2 overflow-hidden">
-                    <div className="h-full bg-blue-500 rounded-full animate-pulse" style={{ width: "100%" }} />
-                  </div>
+                <div className="flex items-center gap-3 p-3 rounded-lg border border-blue-500/20 bg-blue-500/5">
+                  <Loader2 className="w-4 h-4 text-blue-500 animate-spin flex-shrink-0" />
+                  <p className="text-sm text-blue-400 flex-1">{selectedRun.short_summary}</p>
+                  <Button
+                    variant="destructive"
+                    size="sm"
+                    className="flex-shrink-0"
+                    disabled={stoppingRuns.has(selectedRun.id)}
+                    onClick={() => handleStopRun(selectedRun.id)}
+                  >
+                    {stoppingRuns.has(selectedRun.id) ? (
+                      <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" />
+                    ) : (
+                      <Ban className="w-3.5 h-3.5 mr-1.5" />
+                    )}
+                    Force Stop
+                  </Button>
                 </div>
               )}
 
