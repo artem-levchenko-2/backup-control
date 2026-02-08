@@ -319,7 +319,7 @@ export function seedDatabase(): void {
       name: "Nextcloud Datadir → Google Drive",
       type: "rclone_copy",
       source_path: "/mnt/toshiba/nextcloud-data",
-      destination_path: "gdrive:backups/nextcloud-data",
+      destination_path: "artem-g-drive:homelab-backup/nextcloud-data",
       schedule: "daily 02:00",
       flags: "--checksum --transfers 4 --bwlimit 10M",
       description: "Копія Nextcloud datadir (Toshiba диск) у Google Drive. ~13GB даних.",
@@ -328,7 +328,7 @@ export function seedDatabase(): void {
       name: "Immich Media → Google Drive",
       type: "rclone_copy",
       source_path: "/srv/storage/transcend/immich",
-      destination_path: "gdrive:backups/immich-media",
+      destination_path: "artem-g-drive:homelab-backup/immich-media",
       schedule: "daily 03:00",
       flags: "--checksum --transfers 4 --bwlimit 10M --exclude 'thumbs/**' --exclude 'encoded-video/**'",
       description: "Копія Immich фото/відео (Transcend диск) у Google Drive. Бібліотека + uploads.",
@@ -337,7 +337,7 @@ export function seedDatabase(): void {
       name: "Immich DB Backup",
       type: "immich_db_backup",
       source_path: "/srv/storage/transcend/immich/backups",
-      destination_path: "gdrive:backups/immich-db",
+      destination_path: "artem-g-drive:homelab-backup/immich-db",
       schedule: "daily 04:00",
       flags: "",
       description: "Дамп бази даних Immich (Postgres) + копія у Google Drive. Критично для відновлення.",
@@ -346,7 +346,7 @@ export function seedDatabase(): void {
       name: "Media Library → Google Drive",
       type: "rclone_copy",
       source_path: "/srv/storage/media",
-      destination_path: "gdrive:backups/media",
+      destination_path: "artem-g-drive:homelab-backup/media",
       schedule: "weekly sun 05:00",
       flags: "--checksum --transfers 2 --bwlimit 5M",
       description: "Фільми та серіали з MEDIA диска. Щотижневий бекап.",
@@ -439,7 +439,7 @@ export function seedDatabase(): void {
     setSetting("notify_on_failure", "true");
     setSetting("notify_on_success", "false");
     setSetting("notify_daily_digest", "true");
-    setSetting("rclone_config_path", "/home/user/.config/rclone/rclone.conf");
+    setSetting("rclone_config_path", "/home/artem/.config/rclone/rclone.conf");
     setSetting("blackout_start", "18:00");
     setSetting("blackout_end", "23:00");
     setSetting("max_concurrent_jobs", "1");
