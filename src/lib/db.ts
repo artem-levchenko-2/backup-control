@@ -270,8 +270,8 @@ export function getDashboardStats(): DashboardStats {
       const parsed = JSON.parse(disksJson);
       if (Array.isArray(parsed)) {
         for (const entry of parsed) {
-          const mount = entry.mount || "";
-          const label = entry.label || mount;
+          const mount = (entry.mount || "").trim();
+          const label = (entry.label || mount).trim();
           try {
             // Check path exists first
             fs.accessSync(mount, fs.constants.R_OK);
