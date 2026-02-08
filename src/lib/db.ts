@@ -232,6 +232,25 @@ export function completeRun(
   return getRunById(id);
 }
 
+export function updateRunProgress(
+  id: number,
+  data: {
+    bytes_transferred: number;
+    files_transferred: number;
+    errors_count: number;
+    short_summary: string;
+  }
+): void {
+  getDb().prepare(`
+    UPDATE runs SET
+      bytes_transferred = @bytes_transferred,
+      files_transferred = @files_transferred,
+      errors_count = @errors_count,
+      short_summary = @short_summary
+    WHERE id = @id AND status = 'running'
+  `).run({ id, ...data });
+}
+
 // ── Dashboard Stats ─────────────────────────────────────────
 
 export function getDashboardStats(): DashboardStats {
@@ -249,12 +268,17 @@ export function getDashboardStats(): DashboardStats {
 
   const jobsWithLastRun = db.prepare(`
     SELECT j.*,
+      lr.id as last_run_id,
       lr.status as last_run_status,
       lr.started_at as last_run_at,
-      lr.duration_seconds as last_run_duration
+      lr.duration_seconds as last_run_duration,
+      lr.bytes_transferred as last_run_bytes,
+      lr.files_transferred as last_run_files,
+      lr.short_summary as last_run_summary
     FROM jobs j
     LEFT JOIN (
-      SELECT job_id, status, started_at, duration_seconds,
+      SELECT id, job_id, status, started_at, duration_seconds,
+             bytes_transferred, files_transferred, short_summary,
              ROW_NUMBER() OVER (PARTITION BY job_id ORDER BY started_at DESC) as rn
       FROM runs
     ) lr ON lr.job_id = j.id AND lr.rn = 1

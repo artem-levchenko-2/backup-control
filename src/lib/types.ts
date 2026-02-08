@@ -86,7 +86,11 @@ export interface DiskInfo {
 }
 
 export interface JobWithLastRun extends Job {
+  last_run_id: number | null;
   last_run_status: RunStatus | null;
   last_run_at: string | null;
   last_run_duration: number | null;
+  last_run_bytes: number | null;
+  last_run_files: number | null;
+  last_run_summary: string | null;
 }

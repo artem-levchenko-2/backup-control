@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getJobById, createRun, completeRun, getSetting } from "@/lib/db";
+import { getJobById, createRun, completeRun, updateRunProgress, getSetting } from "@/lib/db";
+import { sendJobNotification } from "@/lib/notifications";
 import { spawn } from "child_process";
 
 export async function POST(
@@ -73,6 +74,8 @@ export async function POST(
   let bytesTransferred = 0;
   let filesTransferred = 0;
   let errorsCount = 0;
+  let lastProgressUpdate = 0;
+  let speed = "";
 
   const child = spawn("rclone", args, {
     env: { ...process.env, RCLONE_CONFIG: rcloneConfig },
@@ -91,19 +94,17 @@ export async function POST(
   });
 
   function parseRcloneStats(text: string) {
-    // Try JSON log lines (--use-json-log format)
     for (const line of text.split("\n")) {
       if (!line.trim()) continue;
       try {
         const entry = JSON.parse(line);
-        // rclone json stats include these fields
         if (entry.stats) {
           if (entry.stats.bytes != null) bytesTransferred = entry.stats.bytes;
           if (entry.stats.transfers != null) filesTransferred = entry.stats.transfers;
           if (entry.stats.errors != null) errorsCount = entry.stats.errors;
+          if (entry.stats.speed != null) speed = formatBytes(entry.stats.speed) + "/s";
         }
       } catch {
-        // Fallback: parse plain text stats
         const bytesMatch = line.match(/Transferred:\s+([\d.]+)\s*(\w+)/);
         if (bytesMatch) {
           bytesTransferred = parseTransferredBytes(bytesMatch[1], bytesMatch[2]);
@@ -118,42 +119,73 @@ export async function POST(
         }
       }
     }
-  }
 
-  child.on("close", (code) => {
-    const fullLog = logChunks.join("");
-    // Keep last 4000 chars of log for the DB
-    const logExcerpt = fullLog.length > 4000 ? "...\n" + fullLog.slice(-4000) : fullLog;
-
-    if (code === 0) {
-      completeRun(run.id, {
-        status: "success",
+    // Update progress in DB every 5 seconds
+    const now = Date.now();
+    if (now - lastProgressUpdate >= 5000) {
+      lastProgressUpdate = now;
+      const speedInfo = speed ? ` @ ${speed}` : "";
+      updateRunProgress(run.id, {
         bytes_transferred: bytesTransferred,
         files_transferred: filesTransferred,
         errors_count: errorsCount,
-        short_summary: `Transferred ${formatBytes(bytesTransferred)}, ${filesTransferred} files. ${errorsCount} errors.`,
-        log_excerpt: logExcerpt,
-      });
-    } else {
-      completeRun(run.id, {
-        status: "failure",
-        bytes_transferred: bytesTransferred,
-        files_transferred: filesTransferred,
-        errors_count: errorsCount || 1,
-        short_summary: `Failed with exit code ${code}. ${errorsCount} errors. Check logs.`,
-        log_excerpt: logExcerpt,
+        short_summary: `Running: ${formatBytes(bytesTransferred)}, ${filesTransferred} files${speedInfo}...`,
       });
     }
+  }
+
+  child.on("close", async (code) => {
+    const fullLog = logChunks.join("");
+    const logExcerpt = fullLog.length > 4000 ? "...\n" + fullLog.slice(-4000) : fullLog;
+
+    const startedAt = new Date(run.started_at).getTime();
+    const durationSeconds = Math.round((Date.now() - startedAt) / 1000);
+
+    const status = code === 0 ? "success" : "failure";
+    const summary = code === 0
+      ? `Transferred ${formatBytes(bytesTransferred)}, ${filesTransferred} files. ${errorsCount} errors.`
+      : `Failed with exit code ${code}. ${errorsCount} errors. Check logs.`;
+
+    completeRun(run.id, {
+      status,
+      bytes_transferred: bytesTransferred,
+      files_transferred: filesTransferred,
+      errors_count: code === 0 ? errorsCount : (errorsCount || 1),
+      short_summary: summary,
+      log_excerpt: logExcerpt,
+    });
+
+    // Send Telegram notification
+    await sendJobNotification({
+      jobName: job.name,
+      status: status as "success" | "failure",
+      bytesTransferred,
+      filesTransferred,
+      errorsCount: code === 0 ? errorsCount : (errorsCount || 1),
+      durationSeconds,
+      summary,
+    });
   });
 
-  child.on("error", (err) => {
+  child.on("error", async (err) => {
+    const summary = `Failed to start rclone: ${err.message}`;
     completeRun(run.id, {
       status: "failure",
       bytes_transferred: 0,
       files_transferred: 0,
       errors_count: 1,
-      short_summary: `Failed to start rclone: ${err.message}`,
+      short_summary: summary,
       log_excerpt: `ERROR: Could not execute rclone command.\n${err.message}\n\nMake sure rclone is installed in the Docker container.`,
+    });
+
+    await sendJobNotification({
+      jobName: job.name,
+      status: "failure",
+      bytesTransferred: 0,
+      filesTransferred: 0,
+      errorsCount: 1,
+      durationSeconds: 0,
+      summary,
     });
   });
 

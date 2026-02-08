@@ -6,6 +6,12 @@ import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { Button } from "@/components/ui/button";
 import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
   CheckCircle2,
   XCircle,
   Clock,
@@ -15,8 +21,10 @@ import {
   RefreshCw,
   TrendingUp,
   AlertTriangle,
+  FileText,
+  Loader2,
 } from "lucide-react";
-import type { DashboardStats, RunStatus } from "@/lib/types";
+import type { DashboardStats, Run, RunStatus } from "@/lib/types";
 
 function formatBytes(bytes: number): string {
   if (bytes === 0) return "0 B";
@@ -27,7 +35,7 @@ function formatBytes(bytes: number): string {
 }
 
 function formatDuration(seconds: number | null): string {
-  if (!seconds) return "—";
+  if (!seconds) return "\u2014";
   if (seconds < 60) return `${seconds}s`;
   if (seconds < 3600) return `${Math.floor(seconds / 60)}m ${seconds % 60}s`;
   const h = Math.floor(seconds / 3600);
@@ -49,17 +57,6 @@ function timeAgo(dateStr: string | null): string {
   return `${diffDays}d ago`;
 }
 
-function statusColor(status: RunStatus | null): string {
-  switch (status) {
-    case "success": return "text-emerald-500";
-    case "failure": return "text-red-500";
-    case "running": return "text-blue-500";
-    case "cancelled": return "text-yellow-500";
-    case "skipped": return "text-gray-400";
-    default: return "text-muted-foreground";
-  }
-}
-
 function statusBadge(status: RunStatus | null) {
   switch (status) {
     case "success":
@@ -75,15 +72,12 @@ function statusBadge(status: RunStatus | null) {
   }
 }
 
-function diskColor(percent: number): string {
-  if (percent >= 90) return "bg-red-500";
-  if (percent >= 70) return "bg-yellow-500";
-  return "bg-emerald-500";
-}
-
 export default function DashboardPage() {
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [loading, setLoading] = useState(true);
+  const [selectedRun, setSelectedRun] = useState<Run | null>(null);
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const [loadingRun, setLoadingRun] = useState(false);
 
   const fetchStats = useCallback(async () => {
     try {
@@ -102,6 +96,34 @@ export default function DashboardPage() {
     const interval = setInterval(fetchStats, 10000);
     return () => clearInterval(interval);
   }, [fetchStats]);
+
+  // Also auto-refresh selected run if it's still running
+  useEffect(() => {
+    if (!selectedRun || selectedRun.status !== "running" || !dialogOpen) return;
+    const interval = setInterval(async () => {
+      try {
+        const res = await fetch(`/api/runs/${selectedRun.id}`);
+        const data = await res.json();
+        setSelectedRun(data);
+        if (data.status !== "running") clearInterval(interval);
+      } catch { /* ignore */ }
+    }, 3000);
+    return () => clearInterval(interval);
+  }, [selectedRun, dialogOpen]);
+
+  const openRunDetail = async (runId: number) => {
+    setLoadingRun(true);
+    setDialogOpen(true);
+    try {
+      const res = await fetch(`/api/runs/${runId}`);
+      const data = await res.json();
+      setSelectedRun(data);
+    } catch {
+      setSelectedRun(null);
+    } finally {
+      setLoadingRun(false);
+    }
+  };
 
   if (loading) {
     return (
@@ -210,31 +232,67 @@ export default function DashboardPage() {
               <CardTitle className="text-base">Job Status Overview</CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="space-y-4">
-                {stats.jobs_with_last_run.map((job) => (
-                  <div
-                    key={job.id}
-                    className="flex items-center gap-4 p-3 rounded-lg border border-border/50 bg-card hover:bg-accent/30 transition-colors"
-                  >
-                    <div className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${
-                      job.last_run_status === "success" ? "bg-emerald-500" :
-                      job.last_run_status === "failure" ? "bg-red-500" :
-                      job.last_run_status === "running" ? "bg-blue-500 animate-pulse" :
-                      "bg-gray-500"
-                    }`} />
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium truncate">{job.name}</p>
-                      <p className="text-xs text-muted-foreground">{job.schedule}</p>
+              <div className="space-y-3">
+                {stats.jobs_with_last_run.map((job) => {
+                  const isRunning = job.last_run_status === "running";
+
+                  return (
+                    <div
+                      key={job.id}
+                      className={`p-3 rounded-lg border border-border/50 bg-card hover:bg-accent/30 transition-colors ${
+                        job.last_run_id ? "cursor-pointer" : ""
+                      }`}
+                      onClick={() => job.last_run_id && openRunDetail(job.last_run_id)}
+                    >
+                      <div className="flex items-center gap-4">
+                        <div className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${
+                          job.last_run_status === "success" ? "bg-emerald-500" :
+                          job.last_run_status === "failure" ? "bg-red-500" :
+                          isRunning ? "bg-blue-500 animate-pulse" :
+                          "bg-gray-500"
+                        }`} />
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-medium truncate">{job.name}</p>
+                          <p className="text-xs text-muted-foreground">{job.schedule}</p>
+                        </div>
+                        <div className="text-right flex-shrink-0">
+                          {statusBadge(job.last_run_status)}
+                          <p className="text-[11px] text-muted-foreground mt-1">
+                            {job.last_run_at ? timeAgo(job.last_run_at) : "Never run"}
+                            {job.last_run_duration ? ` (${formatDuration(job.last_run_duration)})` : ""}
+                          </p>
+                        </div>
+                      </div>
+
+                      {/* Live progress bar for running jobs */}
+                      {isRunning && (
+                        <div className="mt-3 space-y-1.5">
+                          <div className="flex items-center gap-2">
+                            <Loader2 className="w-3 h-3 text-blue-500 animate-spin flex-shrink-0" />
+                            <p className="text-xs text-blue-400 truncate">
+                              {job.last_run_summary || "Starting..."}
+                            </p>
+                          </div>
+                          <div className="w-full bg-accent rounded-full h-1.5 overflow-hidden">
+                            <div className="h-full bg-blue-500 rounded-full animate-pulse" style={{ width: "100%" }} />
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Compact summary for completed jobs */}
+                      {!isRunning && job.last_run_summary && job.last_run_status && (
+                        <p className="mt-2 text-[11px] text-muted-foreground truncate pl-6.5">
+                          {job.last_run_bytes != null && job.last_run_bytes > 0 && (
+                            <span>{formatBytes(job.last_run_bytes)}, {job.last_run_files} files</span>
+                          )}
+                        </p>
+                      )}
                     </div>
-                    <div className="text-right flex-shrink-0">
-                      {statusBadge(job.last_run_status)}
-                      <p className="text-[11px] text-muted-foreground mt-1">
-                        {job.last_run_at ? timeAgo(job.last_run_at) : "Never run"}
-                        {job.last_run_duration ? ` (${formatDuration(job.last_run_duration)})` : ""}
-                      </p>
-                    </div>
-                  </div>
-                ))}
+                  );
+                })}
+                {stats.jobs_with_last_run.length === 0 && (
+                  <p className="text-sm text-muted-foreground text-center py-4">No jobs configured</p>
+                )}
               </div>
             </CardContent>
           </Card>
@@ -247,13 +305,17 @@ export default function DashboardPage() {
             <CardContent>
               <div className="space-y-3">
                 {stats.recent_runs.map((run) => (
-                  <div key={run.id} className="flex items-center gap-3">
+                  <div
+                    key={run.id}
+                    className="flex items-center gap-3 p-2 rounded-lg hover:bg-accent/30 transition-colors cursor-pointer -mx-2"
+                    onClick={() => openRunDetail(run.id)}
+                  >
                     {run.status === "success" ? (
                       <CheckCircle2 className="w-4 h-4 text-emerald-500 flex-shrink-0" />
                     ) : run.status === "failure" ? (
                       <XCircle className="w-4 h-4 text-red-500 flex-shrink-0" />
                     ) : (
-                      <Clock className="w-4 h-4 text-blue-500 flex-shrink-0 animate-spin" />
+                      <Loader2 className="w-4 h-4 text-blue-500 flex-shrink-0 animate-spin" />
                     )}
                     <div className="flex-1 min-w-0">
                       <p className="text-sm truncate">{run.job_name || `Job #${run.job_id}`}</p>
@@ -273,7 +335,7 @@ export default function DashboardPage() {
           </Card>
         </div>
 
-        {/* Disk Usage */}
+        {/* Disk Usage + Server Info */}
         <div className="space-y-4">
           <Card>
             <CardHeader className="pb-3">
@@ -310,7 +372,7 @@ export default function DashboardPage() {
             </CardContent>
           </Card>
 
-          {/* Server Info (from settings) */}
+          {/* Server Info */}
           <Card>
             <CardHeader className="pb-3">
               <CardTitle className="text-base">Server Info</CardTitle>
@@ -354,13 +416,118 @@ export default function DashboardPage() {
               )}
               {!stats.server_info?.server_hostname && !stats.server_info?.server_docker_ip && (
                 <p className="text-xs text-muted-foreground text-center py-2">
-                  Configure in Settings → Server Info
+                  Configure in Settings &rarr; Server Info
                 </p>
               )}
             </CardContent>
           </Card>
         </div>
       </div>
+
+      {/* Run Detail Dialog */}
+      <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+        <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <FileText className="w-5 h-5" />
+              Run Details
+            </DialogTitle>
+          </DialogHeader>
+          {loadingRun ? (
+            <div className="flex items-center justify-center py-8">
+              <RefreshCw className="w-5 h-5 animate-spin text-muted-foreground" />
+            </div>
+          ) : selectedRun ? (
+            <div className="space-y-4">
+              {/* Status Header */}
+              <div className="flex items-center justify-between p-3 rounded-lg bg-accent/50">
+                <div className="flex items-center gap-3">
+                  {selectedRun.status === "success" ? (
+                    <CheckCircle2 className="w-5 h-5 text-emerald-500" />
+                  ) : selectedRun.status === "failure" ? (
+                    <XCircle className="w-5 h-5 text-red-500" />
+                  ) : (
+                    <Loader2 className="w-5 h-5 text-blue-500 animate-spin" />
+                  )}
+                  <div>
+                    <p className="font-medium">{selectedRun.job_name || `Job #${selectedRun.job_id}`}</p>
+                    <p className="text-xs text-muted-foreground">Run #{selectedRun.id}</p>
+                  </div>
+                </div>
+                {statusBadge(selectedRun.status)}
+              </div>
+
+              {/* Stats Grid */}
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                <div className="p-2.5 rounded-lg bg-accent/30 text-center">
+                  <p className="text-[10px] text-muted-foreground uppercase tracking-wider">Duration</p>
+                  <p className="text-sm font-medium mt-0.5">
+                    {selectedRun.status === "running"
+                      ? formatDuration(Math.round((Date.now() - new Date(selectedRun.started_at).getTime()) / 1000))
+                      : formatDuration(selectedRun.duration_seconds)
+                    }
+                  </p>
+                </div>
+                <div className="p-2.5 rounded-lg bg-accent/30 text-center">
+                  <p className="text-[10px] text-muted-foreground uppercase tracking-wider">Transferred</p>
+                  <p className="text-sm font-medium mt-0.5">{formatBytes(selectedRun.bytes_transferred || 0)}</p>
+                </div>
+                <div className="p-2.5 rounded-lg bg-accent/30 text-center">
+                  <p className="text-[10px] text-muted-foreground uppercase tracking-wider">Files</p>
+                  <p className="text-sm font-medium mt-0.5">{selectedRun.files_transferred || 0}</p>
+                </div>
+                <div className="p-2.5 rounded-lg bg-accent/30 text-center">
+                  <p className="text-[10px] text-muted-foreground uppercase tracking-wider">Errors</p>
+                  <p className={`text-sm font-medium mt-0.5 ${selectedRun.errors_count > 0 ? "text-red-500" : ""}`}>
+                    {selectedRun.errors_count}
+                  </p>
+                </div>
+              </div>
+
+              {/* Running Progress */}
+              {selectedRun.status === "running" && (
+                <div className="space-y-2">
+                  <div className="flex items-center gap-2">
+                    <Loader2 className="w-3.5 h-3.5 text-blue-500 animate-spin" />
+                    <p className="text-sm text-blue-400">{selectedRun.short_summary}</p>
+                  </div>
+                  <div className="w-full bg-accent rounded-full h-2 overflow-hidden">
+                    <div className="h-full bg-blue-500 rounded-full animate-pulse" style={{ width: "100%" }} />
+                  </div>
+                </div>
+              )}
+
+              {/* Summary */}
+              {selectedRun.status !== "running" && selectedRun.short_summary && (
+                <div className="p-3 rounded-lg border border-border/50 bg-card">
+                  <p className="text-xs font-medium text-muted-foreground mb-1">Summary</p>
+                  <p className="text-sm">{selectedRun.short_summary}</p>
+                </div>
+              )}
+
+              {/* Timing */}
+              <div className="text-xs text-muted-foreground space-y-1">
+                <p>Started: {new Date(selectedRun.started_at).toLocaleString()}</p>
+                {selectedRun.finished_at && (
+                  <p>Finished: {new Date(selectedRun.finished_at).toLocaleString()}</p>
+                )}
+              </div>
+
+              {/* Log Output */}
+              {selectedRun.log_excerpt && (
+                <div>
+                  <p className="text-xs font-medium text-muted-foreground mb-2">Log Output</p>
+                  <pre className="p-3 rounded-lg bg-black/50 border border-border/30 text-[11px] font-mono text-gray-300 overflow-x-auto max-h-64 overflow-y-auto whitespace-pre-wrap break-all">
+                    {selectedRun.log_excerpt}
+                  </pre>
+                </div>
+              )}
+            </div>
+          ) : (
+            <p className="text-sm text-muted-foreground text-center py-8">Run not found</p>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
