@@ -1,11 +1,11 @@
 # ============================================================
 # Backup Control — Portainer Stack (GitHub deployment)
 # ============================================================
-# Цей файл використовується Portainer для деплою з GitHub.
-# Image збирається автоматично через GitHub Actions і пушиться
-# в GitHub Container Registry (ghcr.io).
+# Image is built automatically by GitHub Actions and pushed
+# to GitHub Container Registry (ghcr.io).
 #
-# Image автоматично збирається GitHub Actions і пушиться в GHCR
+# IMPORTANT: After deploying, edit the stack in Portainer UI
+# to adjust the volume paths below to match YOUR server.
 # ============================================================
 
 services:
@@ -16,9 +16,20 @@ services:
     ports:
       - "3100:3000"
     volumes:
+      # Persistent SQLite database
       - backup-control-data:/app/data
+
+      # ── CUSTOMIZE THESE PATHS IN PORTAINER STACK EDITOR ──
+      # Rclone config (change left side to YOUR rclone config path)
+      - /home/artem/.config/rclone/rclone.conf:/etc/rclone/rclone.conf:ro
+
+      # Host storage directories (read-only for backup source access + disk stats)
+      - /srv/storage:/srv/storage:ro
+      - /mnt:/mnt:ro
+
     environment:
       - NODE_ENV=production
+      - RCLONE_CONFIG=/etc/rclone/rclone.conf
 
 volumes:
   backup-control-data:

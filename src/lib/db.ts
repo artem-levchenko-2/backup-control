@@ -261,14 +261,35 @@ export function getDashboardStats(): DashboardStats {
     ORDER BY j.name
   `).all() as JobWithLastRun[];
 
-  // Disk info from settings (configured by user in UI)
+  // Disk info — auto-detect sizes via statfs from configured mount points
   const disks: DiskInfo[] = [];
   const disksJson = getSetting("disks_config");
   if (disksJson) {
     try {
+      const fs = require("fs");
       const parsed = JSON.parse(disksJson);
-      if (Array.isArray(parsed)) disks.push(...parsed);
-    } catch { /* ignore */ }
+      if (Array.isArray(parsed)) {
+        for (const entry of parsed) {
+          const mount = entry.mount || "";
+          const label = entry.label || mount;
+          try {
+            const stats = fs.statfsSync(mount);
+            const blockSize = stats.bsize;
+            const totalBytes = stats.blocks * blockSize;
+            const freeBytes = stats.bfree * blockSize;
+            const usedBytes = totalBytes - freeBytes;
+            const totalGb = Math.round((totalBytes / (1024 ** 3)) * 10) / 10;
+            const usedGb = Math.round((usedBytes / (1024 ** 3)) * 10) / 10;
+            const freeGb = Math.round((freeBytes / (1024 ** 3)) * 10) / 10;
+            const usagePercent = totalBytes > 0 ? Math.round((usedBytes / totalBytes) * 100) : 0;
+            disks.push({ mount, label, total_gb: totalGb, used_gb: usedGb, free_gb: freeGb, usage_percent: usagePercent });
+          } catch {
+            // Path not mounted or inaccessible — show N/A values
+            disks.push({ mount, label, total_gb: 0, used_gb: 0, free_gb: 0, usage_percent: 0 });
+          }
+        }
+      }
+    } catch { /* ignore malformed JSON */ }
   }
 
   // Server info from settings

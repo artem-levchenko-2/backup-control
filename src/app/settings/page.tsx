@@ -19,14 +19,13 @@ import {
   FolderTree,
   Plus,
   Trash2,
+  Send,
 } from "lucide-react";
 import { toast } from "sonner";
 
 interface DiskEntry {
   mount: string;
   label: string;
-  total_gb: number;
-  used_gb: number;
 }
 
 interface SettingsState {
@@ -94,6 +93,7 @@ export default function SettingsPage() {
   const [disks, setDisks] = useState<DiskEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [sendingTest, setSendingTest] = useState(false);
 
   const fetchSettings = useCallback(async () => {
     try {
@@ -150,7 +150,7 @@ export default function SettingsPage() {
   };
 
   const addDisk = () => {
-    setDisks((prev) => [...prev, { mount: "", label: "", total_gb: 0, used_gb: 0 }]);
+    setDisks((prev) => [...prev, { mount: "", label: "" }]);
   };
 
   const updateDisk = (index: number, field: keyof DiskEntry, value: string | number) => {
@@ -159,6 +159,23 @@ export default function SettingsPage() {
 
   const removeDisk = (index: number) => {
     setDisks((prev) => prev.filter((_, i) => i !== index));
+  };
+
+  const handleTestTelegram = async () => {
+    setSendingTest(true);
+    try {
+      const res = await fetch("/api/notifications/test", { method: "POST" });
+      const data = await res.json();
+      if (res.ok) {
+        toast.success(data.message || "Test notification sent!");
+      } else {
+        toast.error(data.error || "Failed to send test notification");
+      }
+    } catch {
+      toast.error("Network error while sending test notification");
+    } finally {
+      setSendingTest(false);
+    }
   };
 
   if (loading) {
@@ -316,7 +333,7 @@ export default function SettingsPage() {
               <HardDrive className="w-5 h-5 text-violet-500" />
               <div>
                 <CardTitle className="text-base">Disk Usage</CardTitle>
-                <CardDescription>Disks shown on Dashboard (add your server mounts)</CardDescription>
+                <CardDescription>Disks shown on Dashboard — sizes are auto-detected via the mount path</CardDescription>
               </div>
             </div>
             <Button variant="outline" size="sm" onClick={addDisk}>
@@ -331,9 +348,9 @@ export default function SettingsPage() {
             </p>
           )}
           {disks.map((disk, i) => (
-            <div key={i} className="grid grid-cols-[1fr_1fr_80px_80px_auto] gap-2 items-end">
+            <div key={i} className="grid grid-cols-[1fr_1fr_auto] gap-2 items-end">
               <div className="space-y-1">
-                <Label className="text-xs text-muted-foreground">Mount point</Label>
+                <Label className="text-xs text-muted-foreground">Mount point (must exist in container)</Label>
                 <Input
                   value={disk.mount}
                   onChange={(e) => updateDisk(i, "mount", e.target.value)}
@@ -349,27 +366,16 @@ export default function SettingsPage() {
                   placeholder="MEDIA"
                 />
               </div>
-              <div className="space-y-1">
-                <Label className="text-xs text-muted-foreground">Total GB</Label>
-                <Input
-                  type="number"
-                  value={disk.total_gb || ""}
-                  onChange={(e) => updateDisk(i, "total_gb", Number(e.target.value))}
-                />
-              </div>
-              <div className="space-y-1">
-                <Label className="text-xs text-muted-foreground">Used GB</Label>
-                <Input
-                  type="number"
-                  value={disk.used_gb || ""}
-                  onChange={(e) => updateDisk(i, "used_gb", Number(e.target.value))}
-                />
-              </div>
               <Button variant="ghost" size="sm" onClick={() => removeDisk(i)} className="mb-0.5">
                 <Trash2 className="w-4 h-4 text-muted-foreground" />
               </Button>
             </div>
           ))}
+          {disks.length > 0 && (
+            <p className="text-[11px] text-muted-foreground">
+              Total/Used/Free sizes are auto-detected from the mount paths using statfs. The directories must be bind-mounted into the Docker container.
+            </p>
+          )}
         </CardContent>
       </Card>
 
@@ -454,6 +460,24 @@ export default function SettingsPage() {
               checked={settings.telegram_enabled === "true"}
               onCheckedChange={() => toggleBool("telegram_enabled")}
             />
+          </div>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleTestTelegram}
+              disabled={sendingTest || !settings.telegram_bot_token || !settings.telegram_chat_id}
+            >
+              {sendingTest ? (
+                <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
+              ) : (
+                <Send className="w-4 h-4 mr-2" />
+              )}
+              Send Test Message
+            </Button>
+            {(!settings.telegram_bot_token || !settings.telegram_chat_id) && (
+              <span className="text-[11px] text-muted-foreground">Fill in Bot Token and Chat ID first</span>
+            )}
           </div>
           <Separator />
           <div className="space-y-2">
