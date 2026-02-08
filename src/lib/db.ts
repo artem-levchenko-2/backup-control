@@ -38,15 +38,15 @@ function initSchema(db: Database.Database) {
       schedule TEXT NOT NULL DEFAULT 'daily 02:00',
       flags TEXT NOT NULL DEFAULT '',
       description TEXT NOT NULL DEFAULT '',
-      created_at TEXT NOT NULL DEFAULT (datetime('now')),
-      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now')),
+      updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))
     );
 
     CREATE TABLE IF NOT EXISTS runs (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       job_id INTEGER NOT NULL REFERENCES jobs(id) ON DELETE CASCADE,
       status TEXT NOT NULL DEFAULT 'running',
-      started_at TEXT NOT NULL DEFAULT (datetime('now')),
+      started_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now')),
       finished_at TEXT,
       duration_seconds INTEGER,
       bytes_transferred INTEGER DEFAULT 0,
@@ -60,7 +60,7 @@ function initSchema(db: Database.Database) {
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       key TEXT NOT NULL UNIQUE,
       value TEXT NOT NULL DEFAULT '',
-      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+      updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))
     );
 
     CREATE INDEX IF NOT EXISTS idx_runs_job_id ON runs(job_id);
@@ -111,7 +111,7 @@ export function updateJob(id: number, data: Partial<Job>): Job | undefined {
       schedule = @schedule,
       flags = @flags,
       description = @description,
-      updated_at = datetime('now')
+      updated_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now')
     WHERE id = @id
   `);
   stmt.run({
@@ -136,7 +136,7 @@ export function deleteJob(id: number): boolean {
 export function toggleJob(id: number): Job | undefined {
   const job = getJobById(id);
   if (!job) return undefined;
-  getDb().prepare("UPDATE jobs SET enabled = ?, updated_at = datetime('now') WHERE id = ?")
+  getDb().prepare("UPDATE jobs SET enabled = ?, updated_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now') WHERE id = ?")
     .run(job.enabled ? 0 : 1, id);
   return getJobById(id);
 }
@@ -203,14 +203,14 @@ export function completeRun(
   const run = getRunById(id);
   if (!run) return undefined;
 
-  const startedAt = new Date(run.started_at).getTime();
+  const startedAt = new Date(run.started_at.endsWith("Z") ? run.started_at : run.started_at + "Z").getTime();
   const now = Date.now();
   const durationSeconds = Math.round((now - startedAt) / 1000);
 
   getDb().prepare(`
     UPDATE runs SET
       status = @status,
-      finished_at = datetime('now'),
+      finished_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now'),
       duration_seconds = @duration_seconds,
       bytes_transferred = @bytes_transferred,
       files_transferred = @files_transferred,
@@ -261,7 +261,7 @@ export function getDashboardStats(): DashboardStats {
   const totalRuns = (db.prepare("SELECT COUNT(*) as count FROM runs").get() as { count: number }).count;
   const successfulRuns = (db.prepare("SELECT COUNT(*) as count FROM runs WHERE status = 'success'").get() as { count: number }).count;
   const failedRuns = (db.prepare("SELECT COUNT(*) as count FROM runs WHERE status = 'failure'").get() as { count: number }).count;
-  const last24hRuns = (db.prepare("SELECT COUNT(*) as count FROM runs WHERE started_at >= datetime('now', '-1 day')").get() as { count: number }).count;
+  const last24hRuns = (db.prepare("SELECT COUNT(*) as count FROM runs WHERE started_at >= strftime('%Y-%m-%dT%H:%M:%SZ', 'now', '-1 day')").get() as { count: number }).count;
   const totalBytes = (db.prepare("SELECT COALESCE(SUM(bytes_transferred), 0) as total FROM runs WHERE status = 'success'").get() as { total: number }).total;
 
   const recentRuns = getAllRuns(5);
@@ -357,8 +357,8 @@ export function getSetting(key: string): string | null {
 export function setSetting(key: string, value: string): void {
   getDb().prepare(`
     INSERT INTO settings (key, value, updated_at)
-    VALUES (@key, @value, datetime('now'))
-    ON CONFLICT(key) DO UPDATE SET value = @value, updated_at = datetime('now')
+    VALUES (@key, @value, strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))
+    ON CONFLICT(key) DO UPDATE SET value = @value, updated_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now')
   `).run({ key, value });
 }
 

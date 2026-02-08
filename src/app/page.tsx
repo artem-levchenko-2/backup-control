@@ -45,9 +45,21 @@ function formatDuration(seconds: number | null): string {
   return `${h}h ${m}m`;
 }
 
+/** Parse a date string from SQLite, ensuring UTC interpretation */
+function parseUTC(dateStr: string): Date {
+  // If the string has no timezone indicator, append "Z" so JS treats it as UTC
+  if (!dateStr.endsWith("Z") && !dateStr.includes("+") && !dateStr.includes("T")) {
+    return new Date(dateStr.replace(" ", "T") + "Z");
+  }
+  if (!dateStr.endsWith("Z") && !dateStr.includes("+")) {
+    return new Date(dateStr + "Z");
+  }
+  return new Date(dateStr);
+}
+
 function timeAgo(dateStr: string | null): string {
   if (!dateStr) return "Never";
-  const date = new Date(dateStr);
+  const date = parseUTC(dateStr);
   const now = new Date();
   const diffMs = now.getTime() - date.getTime();
   const diffMin = Math.floor(diffMs / 60000);
@@ -506,7 +518,7 @@ export default function DashboardPage() {
                   <p className="text-[10px] text-muted-foreground uppercase tracking-wider">Duration</p>
                   <p className="text-sm font-medium mt-0.5">
                     {selectedRun.status === "running"
-                      ? formatDuration(Math.round((Date.now() - new Date(selectedRun.started_at).getTime()) / 1000))
+                      ? formatDuration(Math.round((Date.now() - parseUTC(selectedRun.started_at).getTime()) / 1000))
                       : formatDuration(selectedRun.duration_seconds)
                     }
                   </p>
@@ -559,9 +571,9 @@ export default function DashboardPage() {
 
               {/* Timing */}
               <div className="text-xs text-muted-foreground space-y-1">
-                <p>Started: {new Date(selectedRun.started_at).toLocaleString()}</p>
+                <p>Started: {parseUTC(selectedRun.started_at).toLocaleString()}</p>
                 {selectedRun.finished_at && (
-                  <p>Finished: {new Date(selectedRun.finished_at).toLocaleString()}</p>
+                  <p>Finished: {parseUTC(selectedRun.finished_at).toLocaleString()}</p>
                 )}
               </div>
 

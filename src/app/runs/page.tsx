@@ -48,9 +48,20 @@ function formatDuration(seconds: number | null): string {
   return `${h}h ${m}m`;
 }
 
+/** Parse a date string from SQLite, ensuring UTC interpretation */
+function parseUTC(dateStr: string): Date {
+  if (!dateStr.endsWith("Z") && !dateStr.includes("+") && !dateStr.includes("T")) {
+    return new Date(dateStr.replace(" ", "T") + "Z");
+  }
+  if (!dateStr.endsWith("Z") && !dateStr.includes("+")) {
+    return new Date(dateStr + "Z");
+  }
+  return new Date(dateStr);
+}
+
 function formatDate(dateStr: string | null): string {
   if (!dateStr) return "—";
-  const d = new Date(dateStr);
+  const d = parseUTC(dateStr);
   return d.toLocaleString("uk-UA", {
     day: "2-digit",
     month: "2-digit",

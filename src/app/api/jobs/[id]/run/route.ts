@@ -158,7 +158,8 @@ export async function POST(
     const fullLog = logChunks.join("");
     const logExcerpt = fullLog.length > 4000 ? "...\n" + fullLog.slice(-4000) : fullLog;
 
-    const startedAt = new Date(run.started_at).getTime();
+    const startedAtStr = run.started_at.endsWith("Z") ? run.started_at : run.started_at + "Z";
+    const startedAt = new Date(startedAtStr).getTime();
     const durationSeconds = Math.round((Date.now() - startedAt) / 1000);
 
     // Detect if stopped by user (SIGTERM/SIGKILL)
