@@ -59,6 +59,62 @@ export async function sendJobNotification(data: JobNotificationData): Promise<vo
   }
 }
 
+// ── Verify Notification ──────────────────────────────────────
+
+interface VerifyNotificationData {
+  jobName: string;
+  status: "success" | "failure";
+  matchedFiles: number;
+  errorsCount: number;
+  durationSeconds: number;
+  summary: string;
+}
+
+export async function sendVerifyNotification(data: VerifyNotificationData): Promise<void> {
+  const enabled = getSetting("telegram_enabled");
+  if (enabled !== "true") return;
+
+  const botToken = getSetting("telegram_bot_token");
+  const chatId = getSetting("telegram_chat_id");
+  if (!botToken || !chatId) return;
+
+  // Notify on both success and failure for verification
+  if (data.status === "failure" && getSetting("notify_on_failure") !== "true") return;
+  if (data.status === "success" && getSetting("notify_on_success") !== "true") return;
+
+  const emoji = data.status === "success" ? "\u2705" : "\u274C";
+  const statusText = data.status === "success" ? "Verified" : "Verification Failed";
+
+  const message = [
+    `${emoji} *Backup ${statusText}*: ${escapeMarkdown(data.jobName)}`,
+    "",
+    `\uD83D\uDD0D ${data.matchedFiles} files checked`,
+    data.errorsCount > 0 ? `\u26A0\uFE0F ${data.errorsCount} differences found` : "\u2705 All files match",
+    `\u23F1 Duration: ${formatDuration(data.durationSeconds)}`,
+    "",
+    escapeMarkdown(data.summary),
+  ].filter(Boolean).join("\n");
+
+  try {
+    const url = `https://api.telegram.org/bot${botToken}/sendMessage`;
+    const res = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        chat_id: chatId,
+        text: message,
+        parse_mode: "Markdown",
+      }),
+    });
+    const result = await res.json();
+    if (!result.ok) {
+      console.error("[telegram] Verify notification API error:", result.description);
+    }
+  } catch (err) {
+    console.error("[telegram] Failed to send verify notification:", err);
+  }
+}
+
 function escapeMarkdown(text: string): string {
   return text.replace(/([_*\[\]()~`>#+\-=|{}.!])/g, "\\$1");
 }

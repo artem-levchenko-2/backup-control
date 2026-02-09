@@ -21,7 +21,8 @@ export async function POST(
   }
 
   // Create a new run record
-  const run = createRun(job.id);
+  const runType = job.type === "rclone_check" ? "verify" as const : "backup" as const;
+  const run = createRun(job.id, runType);
 
   // Read rclone settings
   const rcloneConfig = process.env.RCLONE_CONFIG || getSetting("rclone_config_path") || "/etc/rclone/rclone.conf";
@@ -32,6 +33,9 @@ export async function POST(
   switch (job.type) {
     case "rclone_sync":
       rcloneCmd = "sync";
+      break;
+    case "rclone_check":
+      rcloneCmd = "check";
       break;
     case "rclone_copy":
     default:
@@ -50,6 +54,11 @@ export async function POST(
     "-v",
     "--use-json-log",
   ];
+
+  // For rclone_check jobs, add --one-way flag
+  if (job.type === "rclone_check") {
+    args.push("--one-way");
+  }
 
   // Add bandwidth limit if configured
   if (maxBandwidth) {

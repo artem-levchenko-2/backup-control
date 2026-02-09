@@ -24,6 +24,9 @@ import {
   Loader2,
   Square,
   Ban,
+  ShieldCheck,
+  ShieldAlert,
+  ShieldQuestion,
 } from "lucide-react";
 import { toast } from "sonner";
 import type { DashboardStats, Run, RunStatus } from "@/lib/types";
@@ -84,6 +87,39 @@ function statusBadge(status: RunStatus | null) {
     default:
       return <Badge variant="outline" className="text-muted-foreground">No runs</Badge>;
   }
+}
+
+function verifyBadge(verifyStatus: string | null, verifyAt: string | null) {
+  if (!verifyStatus || !verifyAt) {
+    return (
+      <span className="inline-flex items-center gap-1 text-[10px] text-muted-foreground">
+        <ShieldQuestion className="w-3 h-3" />
+        Not verified
+      </span>
+    );
+  }
+  if (verifyStatus === "success") {
+    return (
+      <span className="inline-flex items-center gap-1 text-[10px] text-emerald-500">
+        <ShieldCheck className="w-3 h-3" />
+        Verified {timeAgo(verifyAt)}
+      </span>
+    );
+  }
+  if (verifyStatus === "running") {
+    return (
+      <span className="inline-flex items-center gap-1 text-[10px] text-blue-500">
+        <Loader2 className="w-3 h-3 animate-spin" />
+        Verifying...
+      </span>
+    );
+  }
+  return (
+    <span className="inline-flex items-center gap-1 text-[10px] text-red-500">
+      <ShieldAlert className="w-3 h-3" />
+      Verification failed {timeAgo(verifyAt)}
+    </span>
+  );
 }
 
 export default function DashboardPage() {
@@ -338,6 +374,13 @@ export default function DashboardPage() {
                           {formatBytes(job.last_run_bytes)}, {job.last_run_files} files
                         </p>
                       )}
+
+                      {/* Verification status for backup jobs */}
+                      {(job.type === "rclone_copy" || job.type === "rclone_sync") && (
+                        <div className="mt-2 ml-6">
+                          {verifyBadge(job.last_verify_status, job.last_verify_at)}
+                        </div>
+                      )}
                     </div>
                   );
                 })}
@@ -361,7 +404,17 @@ export default function DashboardPage() {
                     className="flex items-center gap-3 p-2 rounded-lg hover:bg-accent/30 transition-colors cursor-pointer -mx-2"
                     onClick={() => openRunDetail(run.id)}
                   >
-                    {run.status === "success" ? (
+                    {run.run_type === "verify" ? (
+                      run.status === "success" ? (
+                        <ShieldCheck className="w-4 h-4 text-emerald-500 flex-shrink-0" />
+                      ) : run.status === "failure" ? (
+                        <ShieldAlert className="w-4 h-4 text-red-500 flex-shrink-0" />
+                      ) : run.status === "running" ? (
+                        <Loader2 className="w-4 h-4 text-teal-500 flex-shrink-0 animate-spin" />
+                      ) : (
+                        <ShieldQuestion className="w-4 h-4 text-yellow-500 flex-shrink-0" />
+                      )
+                    ) : run.status === "success" ? (
                       <CheckCircle2 className="w-4 h-4 text-emerald-500 flex-shrink-0" />
                     ) : run.status === "failure" ? (
                       <XCircle className="w-4 h-4 text-red-500 flex-shrink-0" />
@@ -371,7 +424,14 @@ export default function DashboardPage() {
                       <Loader2 className="w-4 h-4 text-blue-500 flex-shrink-0 animate-spin" />
                     )}
                     <div className="flex-1 min-w-0">
-                      <p className="text-sm truncate">{run.job_name || `Job #${run.job_id}`}</p>
+                      <div className="flex items-center gap-2">
+                        <p className="text-sm truncate">{run.job_name || `Job #${run.job_id}`}</p>
+                        {run.run_type === "verify" && (
+                          <Badge variant="outline" className="text-[9px] border-teal-500/30 text-teal-500 bg-teal-500/10 px-1.5 py-0">
+                            Verify
+                          </Badge>
+                        )}
+                      </div>
                       <p className="text-xs text-muted-foreground truncate">{run.short_summary}</p>
                     </div>
                     <div className="text-right text-xs text-muted-foreground flex-shrink-0">

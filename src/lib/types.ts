@@ -5,8 +5,11 @@
 export type JobType =
   | "rclone_copy"
   | "rclone_sync"
+  | "rclone_check"
   | "immich_db_backup"
   | "immich_go_import";
+
+export type RunType = "backup" | "verify";
 
 export type JobStatus = "active" | "disabled";
 
@@ -42,6 +45,7 @@ export interface Run {
   job_id: number;
   job_name?: string;          // joined from jobs table
   job_type?: JobType;         // joined from jobs table
+  run_type: RunType;          // "backup" or "verify"
   status: RunStatus;
   started_at: string;
   finished_at: string | null;
@@ -93,4 +97,9 @@ export interface JobWithLastRun extends Job {
   last_run_bytes: number | null;
   last_run_files: number | null;
   last_run_summary: string | null;
+  // Verification info
+  last_verify_id: number | null;
+  last_verify_status: RunStatus | null;
+  last_verify_at: string | null;
+  last_verify_summary: string | null;
 }

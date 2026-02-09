@@ -28,6 +28,10 @@ import {
   HardDrive,
   FileStack,
   AlertTriangle,
+  ShieldCheck,
+  ShieldAlert,
+  Loader2,
+  ShieldQuestion,
 } from "lucide-react";
 import type { Run, RunStatus } from "@/lib/types";
 
@@ -71,7 +75,19 @@ function formatDate(dateStr: string | null): string {
   });
 }
 
-function statusIcon(status: RunStatus) {
+function statusIcon(status: RunStatus, runType?: string) {
+  if (runType === "verify") {
+    switch (status) {
+      case "success":
+        return <ShieldCheck className="w-5 h-5 text-emerald-500" />;
+      case "failure":
+        return <ShieldAlert className="w-5 h-5 text-red-500" />;
+      case "running":
+        return <Loader2 className="w-5 h-5 text-teal-500 animate-spin" />;
+      default:
+        return <ShieldQuestion className="w-5 h-5 text-yellow-500" />;
+    }
+  }
   switch (status) {
     case "success":
       return <CheckCircle2 className="w-5 h-5 text-emerald-500" />;
@@ -107,7 +123,11 @@ export default function RunsPage() {
   const fetchRuns = useCallback(async () => {
     try {
       const params = new URLSearchParams();
-      if (filterStatus !== "all") params.set("status", filterStatus);
+      if (filterStatus === "verify") {
+        params.set("run_type", "verify");
+      } else if (filterStatus !== "all") {
+        params.set("status", filterStatus);
+      }
       params.set("limit", "50");
       const res = await fetch(`/api/runs?${params}`);
       const data = await res.json();
@@ -151,6 +171,7 @@ export default function RunsPage() {
               <SelectItem value="success">Success</SelectItem>
               <SelectItem value="failure">Failed</SelectItem>
               <SelectItem value="running">Running</SelectItem>
+              <SelectItem value="verify">Verify Runs</SelectItem>
             </SelectContent>
           </Select>
           <Button variant="outline" size="sm" onClick={fetchRuns}>
@@ -171,12 +192,17 @@ export default function RunsPage() {
             <CardContent className="py-4">
               <div className="flex items-center gap-4">
                 <div className="flex-shrink-0">
-                  {statusIcon(run.status)}
+                  {statusIcon(run.status, run.run_type)}
                 </div>
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 flex-wrap">
                     <p className="text-sm font-medium">{run.job_name || `Job #${run.job_id}`}</p>
                     {statusBadge(run.status)}
+                    {run.run_type === "verify" && (
+                      <Badge variant="outline" className="text-[10px] border-teal-500/30 text-teal-500 bg-teal-500/10">
+                        Verify
+                      </Badge>
+                    )}
                     <span className="text-xs text-muted-foreground">Run #{run.id}</span>
                   </div>
                   <p className="text-xs text-muted-foreground mt-1 truncate">
@@ -221,9 +247,16 @@ export default function RunsPage() {
             <>
               <DialogHeader>
                 <div className="flex items-center gap-3">
-                  {statusIcon(selectedRun.status)}
+                  {statusIcon(selectedRun.status, selectedRun.run_type)}
                   <div>
-                    <DialogTitle>{selectedRun.job_name || `Job #${selectedRun.job_id}`}</DialogTitle>
+                    <div className="flex items-center gap-2">
+                      <DialogTitle>{selectedRun.job_name || `Job #${selectedRun.job_id}`}</DialogTitle>
+                      {selectedRun.run_type === "verify" && (
+                        <Badge variant="outline" className="text-[10px] border-teal-500/30 text-teal-500 bg-teal-500/10">
+                          Verify
+                        </Badge>
+                      )}
+                    </div>
                     <p className="text-xs text-muted-foreground mt-1">
                       Run #{selectedRun.id} &middot; {formatDate(selectedRun.started_at)}
                     </p>

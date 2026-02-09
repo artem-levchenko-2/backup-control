@@ -4,7 +4,7 @@
 
 import Database from "better-sqlite3";
 import path from "path";
-import type { Job, Run, Settings, DashboardStats, JobWithLastRun, DiskInfo } from "./types";
+import type { Job, Run, RunType, Settings, DashboardStats, JobWithLastRun, DiskInfo } from "./types";
 
 const DB_PATH = path.join(process.cwd(), "data", "backup-control.db");
 
@@ -67,6 +67,13 @@ function initSchema(db: Database.Database) {
     CREATE INDEX IF NOT EXISTS idx_runs_started_at ON runs(started_at);
     CREATE INDEX IF NOT EXISTS idx_runs_status ON runs(status);
   `);
+
+  // Migration: add run_type column if it doesn't exist
+  try {
+    db.exec(`ALTER TABLE runs ADD COLUMN run_type TEXT NOT NULL DEFAULT 'backup'`);
+  } catch {
+    // Column already exists — ignore
+  }
 }
 
 // ── Jobs ────────────────────────────────────────────────────
@@ -143,7 +150,7 @@ export function toggleJob(id: number): Job | undefined {
 
 // ── Runs ────────────────────────────────────────────────────
 
-export function getAllRuns(limit = 50, offset = 0, jobId?: number, status?: string): Run[] {
+export function getAllRuns(limit = 50, offset = 0, jobId?: number, status?: string, runType?: string): Run[] {
   let sql = `
     SELECT r.*, j.name as job_name, j.type as job_type
     FROM runs r
@@ -159,6 +166,10 @@ export function getAllRuns(limit = 50, offset = 0, jobId?: number, status?: stri
   if (status) {
     conditions.push("r.status = @status");
     params.status = status;
+  }
+  if (runType) {
+    conditions.push("r.run_type = @runType");
+    params.runType = runType;
   }
 
   if (conditions.length > 0) {
@@ -180,12 +191,13 @@ export function getRunById(id: number): Run | undefined {
   `).get(id) as Run | undefined;
 }
 
-export function createRun(jobId: number): Run {
+export function createRun(jobId: number, runType: RunType = "backup"): Run {
   const stmt = getDb().prepare(`
-    INSERT INTO runs (job_id, status, short_summary)
-    VALUES (?, 'running', 'Job started...')
+    INSERT INTO runs (job_id, status, run_type, short_summary)
+    VALUES (?, 'running', ?, ?)
   `);
-  const result = stmt.run(jobId);
+  const summary = runType === "verify" ? "Verification started..." : "Job started...";
+  const result = stmt.run(jobId, runType, summary);
   return getRunById(Number(result.lastInsertRowid))!;
 }
 
@@ -274,14 +286,25 @@ export function getDashboardStats(): DashboardStats {
       lr.duration_seconds as last_run_duration,
       lr.bytes_transferred as last_run_bytes,
       lr.files_transferred as last_run_files,
-      lr.short_summary as last_run_summary
+      lr.short_summary as last_run_summary,
+      lv.id as last_verify_id,
+      lv.status as last_verify_status,
+      lv.started_at as last_verify_at,
+      lv.short_summary as last_verify_summary
     FROM jobs j
     LEFT JOIN (
       SELECT id, job_id, status, started_at, duration_seconds,
              bytes_transferred, files_transferred, short_summary,
              ROW_NUMBER() OVER (PARTITION BY job_id ORDER BY started_at DESC) as rn
       FROM runs
+      WHERE run_type = 'backup'
     ) lr ON lr.job_id = j.id AND lr.rn = 1
+    LEFT JOIN (
+      SELECT id, job_id, status, started_at, short_summary,
+             ROW_NUMBER() OVER (PARTITION BY job_id ORDER BY started_at DESC) as rn
+      FROM runs
+      WHERE run_type = 'verify'
+    ) lv ON lv.job_id = j.id AND lv.rn = 1
     ORDER BY j.name
   `).all() as JobWithLastRun[];
 

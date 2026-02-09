@@ -40,6 +40,8 @@ import {
   ImagePlus,
   Copy,
   HelpCircle,
+  ShieldCheck,
+  Search,
 } from "lucide-react";
 import { toast } from "sonner";
 import type { Job, JobType } from "@/lib/types";
@@ -63,6 +65,12 @@ const jobTypeConfig: Record<JobType, {
     icon: FolderSync,
     color: "text-indigo-500",
     description: "Makes destination identical to source. WARNING: Deletes files at destination that don't exist at source. Use with caution.",
+  },
+  rclone_check: {
+    label: "Rclone Verify",
+    icon: ShieldCheck,
+    color: "text-teal-500",
+    description: "Verifies that all source files exist at the destination using 'rclone check --one-way'. Does NOT transfer data — only compares. Use after backup to confirm integrity.",
   },
   immich_db_backup: {
     label: "Immich DB Backup",
@@ -437,6 +445,7 @@ export default function JobsPage() {
   const [editingJob, setEditingJob] = useState<Partial<Job>>(emptyJob);
   const [isEdit, setIsEdit] = useState(false);
   const [runningJobs, setRunningJobs] = useState<Set<number>>(new Set());
+  const [verifyingJobs, setVerifyingJobs] = useState<Set<number>>(new Set());
 
   // Schedule state (parsed from editingJob.schedule)
   const [schedule, setSchedule] = useState<ParsedSchedule>(parseSchedule("daily 02:00"));
@@ -485,6 +494,34 @@ export default function JobsPage() {
     } catch {
       toast.error("Failed to start job");
       setRunningJobs((prev) => {
+        const next = new Set(prev);
+        next.delete(id);
+        return next;
+      });
+    }
+  };
+
+  const handleVerify = async (id: number, name: string, useChecksum = false) => {
+    try {
+      setVerifyingJobs((prev) => new Set(prev).add(id));
+      const res = await fetch(`/api/jobs/${id}/verify`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ checksum: useChecksum }),
+      });
+      const data = await res.json();
+      toast.success(data.message || `Verification of "${name}" started`);
+      setTimeout(() => {
+        setVerifyingJobs((prev) => {
+          const next = new Set(prev);
+          next.delete(id);
+          return next;
+        });
+        fetchJobs();
+      }, 8000);
+    } catch {
+      toast.error("Failed to start verification");
+      setVerifyingJobs((prev) => {
         const next = new Set(prev);
         next.delete(id);
         return next;
@@ -733,6 +770,29 @@ export default function JobsPage() {
                         </>
                       )}
                     </Button>
+                    {/* Verify button for backup-type jobs */}
+                    {(job.type === "rclone_copy" || job.type === "rclone_sync") && (
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            disabled={verifyingJobs.has(job.id) || !job.enabled}
+                            onClick={() => handleVerify(job.id, job.name)}
+                          >
+                            {verifyingJobs.has(job.id) ? (
+                              <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                            ) : (
+                              <ShieldCheck className="w-3.5 h-3.5" />
+                            )}
+                          </Button>
+                        </TooltipTrigger>
+                        <TooltipContent side="bottom" className="max-w-[280px]">
+                          <p className="text-xs font-medium mb-1">Verify Backup</p>
+                          <p className="text-xs">Runs rclone check --one-way to verify all source files exist at the destination. No data is transferred.</p>
+                        </TooltipContent>
+                      </Tooltip>
+                    )}
                     <Button variant="outline" size="sm" onClick={() => openEdit(job)}>
                       <Pencil className="w-3.5 h-3.5" />
                     </Button>

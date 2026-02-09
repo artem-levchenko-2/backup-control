@@ -11,8 +11,9 @@ export async function GET(req: NextRequest) {
     const offset = Number(searchParams.get("offset")) || 0;
     const jobId = searchParams.get("job_id") ? Number(searchParams.get("job_id")) : undefined;
     const status = searchParams.get("status") || undefined;
+    const runType = searchParams.get("run_type") || undefined;
 
-    const runs = getAllRuns(limit, offset, jobId, status);
+    const runs = getAllRuns(limit, offset, jobId, status, runType);
     return NextResponse.json(runs);
   } catch (error) {
     return NextResponse.json({ error: String(error) }, { status: 500 });
