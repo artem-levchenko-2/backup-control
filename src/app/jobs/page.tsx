@@ -87,70 +87,191 @@ interface FlagDef {
   hasValue?: boolean;
   placeholder?: string;
   defaultValue?: string;
+  multiline?: boolean;
+  category?: string;
 }
 
 const RCLONE_FLAGS: FlagDef[] = [
-  {
-    flag: "--checksum",
-    label: "Checksum",
-    description: "Compare files by checksum (SHA1/MD5) instead of modification time and size. More accurate but slower on first run.",
-  },
+  // ── Transfer & Performance ──
   {
     flag: "--transfers",
     label: "Parallel transfers",
-    description: "Number of file transfers to run in parallel. Higher values speed up many small files. Default is 4.",
+    description: "Number of file transfers to run in parallel. For Google Drive with many small files, 3-4 is optimal. Higher values may trigger rate limits. Default: 4.",
     hasValue: true,
-    placeholder: "4",
+    placeholder: "3",
     defaultValue: "4",
+    category: "perf",
   },
   {
     flag: "--checkers",
     label: "Parallel checkers",
-    description: "Number of checkers to run in parallel for comparing files. Default is 8.",
+    description: "Number of checkers to run in parallel for comparing source vs destination. Higher = faster comparison phase. Default: 8.",
     hasValue: true,
     placeholder: "8",
     defaultValue: "8",
+    category: "perf",
   },
   {
-    flag: "--no-update-modtime",
-    label: "Don't update modtime",
-    description: "Don't update modification time on destination files. Useful when destination doesn't support modtime.",
+    flag: "--fast-list",
+    label: "Fast list",
+    description: "Use fewer API calls to list files (recursive listing). Significantly faster for large directories with thousands of files. Uses more memory. Recommended for Google Drive.",
+    category: "perf",
+  },
+  // ── Google Drive specific ──
+  {
+    flag: "--drive-chunk-size",
+    label: "Drive chunk size",
+    description: "Upload chunk size for Google Drive. Larger chunks = faster for big files but use more RAM (chunk x transfers). 64M-128M recommended for large media. Default: 8M. RAM cost: e.g. 64M x 3 transfers = 192MB.",
+    hasValue: true,
+    placeholder: "64M",
+    defaultValue: "64M",
+    category: "drive",
   },
   {
-    flag: "--dry-run",
-    label: "Dry run (preview only)",
-    description: "Preview what would be transferred without actually copying any files. Perfect for testing new jobs.",
+    flag: "--drive-upload-cutoff",
+    label: "Drive upload cutoff",
+    description: "Files smaller than this are uploaded in a single request. Match this to chunk size. Default: 8M.",
+    hasValue: true,
+    placeholder: "64M",
+    defaultValue: "64M",
+    category: "drive",
   },
+  {
+    flag: "--tpslimit",
+    label: "API rate limit (TPS)",
+    description: "Limit API transactions per second. Prevents Google Drive 403/429 rate-limit errors. 8-10 is a safe value for Google Drive. Without this, rclone may hammer the API and get throttled.",
+    hasValue: true,
+    placeholder: "8",
+    defaultValue: "8",
+    category: "drive",
+  },
+  {
+    flag: "--tpslimit-burst",
+    label: "TPS burst allowance",
+    description: "Allow short bursts above --tpslimit. Helps with initial listing. Usually set to 2x of --tpslimit.",
+    hasValue: true,
+    placeholder: "16",
+    defaultValue: "16",
+    category: "drive",
+  },
+  // ── Filtering ──
   {
     flag: "--exclude",
-    label: "Exclude pattern",
-    description: "Skip files matching this glob pattern. Examples: 'thumbs/**' or '*.tmp'. You can add multiple by separating with space.",
+    label: "Exclude patterns",
+    description: "Skip files/directories matching these glob patterns. Each pattern on a new line. Common Immich excludes: thumbs/**, encoded-video/**",
     hasValue: true,
-    placeholder: "thumbs/** encoded-video/**",
+    placeholder: "thumbs/**\nencoded-video/**",
+    multiline: true,
+    category: "filter",
   },
   {
     flag: "--min-size",
     label: "Min file size",
-    description: "Skip files smaller than this size. Useful to exclude tiny/empty files. Examples: 1K, 100M, 1G.",
+    description: "Skip files smaller than this. Useful to exclude tiny/empty files. Examples: 1K, 100M, 1G.",
     hasValue: true,
     placeholder: "1K",
+    category: "filter",
   },
   {
     flag: "--max-size",
     label: "Max file size",
-    description: "Skip files larger than this size. Useful to avoid transferring huge files. Examples: 100M, 1G, 5G.",
+    description: "Skip files larger than this. Useful to avoid transferring huge files. Examples: 100M, 1G, 5G.",
     hasValue: true,
     placeholder: "1G",
+    category: "filter",
+  },
+  // ── Behavior ──
+  {
+    flag: "--checksum",
+    label: "Checksum verify",
+    description: "Compare files by checksum (SHA1/MD5) instead of modification time. More accurate but slower. NOT recommended for daily backups — use weekly/monthly instead.",
+    category: "behavior",
   },
   {
     flag: "--ignore-existing",
     label: "Ignore existing",
     description: "Skip all files that already exist on destination, regardless of modification time or size. Fastest for append-only backups.",
+    category: "behavior",
+  },
+  {
+    flag: "--no-update-modtime",
+    label: "Don't update modtime",
+    description: "Don't update modification time on destination files. Can speed up transfers when destination doesn't support modtime well.",
+    category: "behavior",
+  },
+  {
+    flag: "--dry-run",
+    label: "Dry run (preview only)",
+    description: "Preview what would be transferred without actually copying. Perfect for testing new job configuration before the first real run.",
+    category: "behavior",
   },
   {
     flag: "--verbose",
     label: "Verbose logging",
-    description: "Show extra debug information in logs. Useful for troubleshooting transfer issues.",
+    description: "Show extra debug information in logs. Useful for troubleshooting transfer issues and diagnosing rate limits.",
+    category: "behavior",
+  },
+];
+
+// ── Flag presets ─────────────────────────────────────────────
+
+interface Preset {
+  id: string;
+  label: string;
+  description: string;
+  flags: Record<string, FlagState>;
+}
+
+const FLAG_PRESETS: Preset[] = [
+  {
+    id: "drive_fast",
+    label: "Google Drive — Fast (large files)",
+    description: "Optimized for large media files. Bigger chunks, more parallelism.",
+    flags: {
+      "--transfers": { enabled: true, value: "6" },
+      "--checkers": { enabled: true, value: "12" },
+      "--fast-list": { enabled: true, value: "" },
+      "--drive-chunk-size": { enabled: true, value: "64M" },
+      "--drive-upload-cutoff": { enabled: true, value: "64M" },
+    },
+  },
+  {
+    id: "drive_safe",
+    label: "Google Drive — Safe (rate-limit friendly)",
+    description: "Low parallelism + TPS limiter. Avoids 403/429 errors on many files.",
+    flags: {
+      "--transfers": { enabled: true, value: "3" },
+      "--checkers": { enabled: true, value: "8" },
+      "--fast-list": { enabled: true, value: "" },
+      "--tpslimit": { enabled: true, value: "8" },
+      "--tpslimit-burst": { enabled: true, value: "16" },
+    },
+  },
+  {
+    id: "immich_light",
+    label: "Immich — Offsite Light (skip thumbs)",
+    description: "Excludes thumbs & encoded-video (regeneratable). Best for daily Immich backups.",
+    flags: {
+      "--transfers": { enabled: true, value: "3" },
+      "--checkers": { enabled: true, value: "8" },
+      "--fast-list": { enabled: true, value: "" },
+      "--tpslimit": { enabled: true, value: "8" },
+      "--tpslimit-burst": { enabled: true, value: "16" },
+      "--exclude": { enabled: true, value: "thumbs/**\nencoded-video/**" },
+    },
+  },
+  {
+    id: "immich_full",
+    label: "Immich — Full (including thumbs)",
+    description: "Full backup including thumbnails. Slow on many files. Use weekly/monthly.",
+    flags: {
+      "--transfers": { enabled: true, value: "3" },
+      "--checkers": { enabled: true, value: "4" },
+      "--fast-list": { enabled: true, value: "" },
+      "--tpslimit": { enabled: true, value: "6" },
+      "--tpslimit-burst": { enabled: true, value: "12" },
+      "--drive-chunk-size": { enabled: true, value: "32M" },
+    },
   },
 ];
 
@@ -220,26 +341,24 @@ function parseFlagsString(raw: string): Record<string, FlagState> {
 
   if (!raw) return state;
 
-  // Parse the flags string
+  // Collect all --exclude patterns first (they appear as separate --exclude flags)
+  const excludePatterns: string[] = [];
+
   const parts = raw.split(/\s+/);
   let i = 0;
   while (i < parts.length) {
     const part = parts[i];
+
+    // Handle --exclude specially: collect all patterns
+    if (part === "--exclude" && i + 1 < parts.length) {
+      excludePatterns.push(parts[i + 1]);
+      i += 2;
+      continue;
+    }
+
     const def = RCLONE_FLAGS.find(f => f.flag === part);
     if (def) {
-      if (def.hasValue && i + 1 < parts.length) {
-        // Special case: --exclude can have multiple values
-        if (def.flag === "--exclude") {
-          // Collect all non-flag tokens as the value
-          const values: string[] = [];
-          i++;
-          while (i < parts.length && !parts[i].startsWith("--")) {
-            values.push(parts[i]);
-            i++;
-          }
-          state[def.flag] = { enabled: true, value: values.join(" ") };
-          continue;
-        }
+      if (def.hasValue && i + 1 < parts.length && !parts[i + 1].startsWith("--")) {
         state[def.flag] = { enabled: true, value: parts[i + 1] };
         i += 2;
         continue;
@@ -247,6 +366,11 @@ function parseFlagsString(raw: string): Record<string, FlagState> {
       state[def.flag] = { enabled: true, value: def.defaultValue || "" };
     }
     i++;
+  }
+
+  // Set exclude patterns (newline-separated for multiline display)
+  if (excludePatterns.length > 0) {
+    state["--exclude"] = { enabled: true, value: excludePatterns.join("\n") };
   }
 
   return state;
@@ -259,13 +383,13 @@ function buildFlagsString(state: Record<string, FlagState>): string {
     if (!s?.enabled) continue;
     if (def.hasValue && s.value) {
       if (def.flag === "--exclude") {
-        // Each exclude pattern gets its own --exclude flag
-        const patterns = s.value.split(/\s+/).filter(Boolean);
+        // Each pattern gets its own --exclude flag
+        const patterns = s.value.split(/[\n\s]+/).filter(Boolean);
         for (const p of patterns) {
           parts.push(`--exclude ${p}`);
         }
       } else {
-        parts.push(`${def.flag} ${s.value}`);
+        parts.push(`${def.flag} ${s.value.trim()}`);
       }
     } else if (!def.hasValue) {
       parts.push(def.flag);
@@ -441,6 +565,70 @@ export default function JobsPage() {
       ...prev,
       [flag]: { ...prev[flag], value },
     }));
+  };
+
+  const applyPreset = (preset: Preset) => {
+    // Start with all flags disabled
+    const newState: Record<string, FlagState> = {};
+    for (const def of RCLONE_FLAGS) {
+      newState[def.flag] = { enabled: false, value: def.defaultValue || "" };
+    }
+    // Apply preset overrides
+    for (const [flag, state] of Object.entries(preset.flags)) {
+      newState[flag] = { ...state };
+    }
+    setFlagsState(newState);
+    toast.success(`Applied preset: ${preset.label}`);
+  };
+
+  const renderFlagGroup = (category: string) => {
+    return RCLONE_FLAGS.filter(def => def.category === category).map((def) => {
+      const state = flagsState[def.flag];
+      return (
+        <div key={def.flag} className="space-y-1.5">
+          <div className="flex items-center gap-2">
+            <Checkbox
+              id={`flag-${def.flag}`}
+              checked={state?.enabled || false}
+              onCheckedChange={() => toggleFlag(def.flag)}
+            />
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <label
+                  htmlFor={`flag-${def.flag}`}
+                  className="text-xs cursor-pointer flex items-center gap-1.5 select-none"
+                >
+                  {def.label}
+                  <HelpCircle className="w-3 h-3 text-muted-foreground" />
+                </label>
+              </TooltipTrigger>
+              <TooltipContent side="right" className="max-w-[280px]">
+                <p className="text-xs font-medium mb-1 font-mono">{def.flag}</p>
+                <p className="text-xs">{def.description}</p>
+              </TooltipContent>
+            </Tooltip>
+          </div>
+          {def.hasValue && state?.enabled && (
+            def.multiline ? (
+              <Textarea
+                value={state.value}
+                onChange={(e) => setFlagValue(def.flag, e.target.value)}
+                placeholder={def.placeholder}
+                className="text-xs font-mono ml-6 w-auto min-h-[3rem]"
+                rows={2}
+              />
+            ) : (
+              <Input
+                value={state.value}
+                onChange={(e) => setFlagValue(def.flag, e.target.value)}
+                placeholder={def.placeholder}
+                className="h-7 text-xs font-mono ml-6 w-auto"
+              />
+            )
+          )}
+        </div>
+      );
+    });
   };
 
   if (loading) {
@@ -767,7 +955,7 @@ export default function JobsPage() {
                 </div>
               </div>
 
-              {/* ── Flags (checkboxes with tooltips) ────────── */}
+              {/* ── Flags (presets + checkboxes with tooltips) ── */}
               <div className="space-y-3">
                 <div className="flex items-center gap-1.5">
                   <Label>Rclone Flags</Label>
@@ -776,49 +964,58 @@ export default function JobsPage() {
                       <HelpCircle className="w-3.5 h-3.5 text-muted-foreground cursor-help" />
                     </TooltipTrigger>
                     <TooltipContent side="right" className="max-w-xs">
-                      <p className="text-xs">Extra command-line flags passed to rclone. Hover each option for details.</p>
+                      <p className="text-xs">Extra command-line flags passed to rclone. Use a preset or customize individually.</p>
                     </TooltipContent>
                   </Tooltip>
                 </div>
-                <div className="space-y-2 p-3 rounded-lg border border-border/50 bg-accent/20">
-                  {RCLONE_FLAGS.map((def) => {
-                    const state = flagsState[def.flag];
-                    return (
-                      <div key={def.flag} className="space-y-1.5">
-                        <div className="flex items-center gap-2">
-                          <Checkbox
-                            id={`flag-${def.flag}`}
-                            checked={state?.enabled || false}
-                            onCheckedChange={() => toggleFlag(def.flag)}
-                          />
-                          <Tooltip>
-                            <TooltipTrigger asChild>
-                              <label
-                                htmlFor={`flag-${def.flag}`}
-                                className="text-xs cursor-pointer flex items-center gap-1.5 select-none"
-                              >
-                                {def.label}
-                                <HelpCircle className="w-3 h-3 text-muted-foreground" />
-                              </label>
-                            </TooltipTrigger>
-                            <TooltipContent side="right" className="max-w-[280px]">
-                              <p className="text-xs font-medium mb-1 font-mono">{def.flag}</p>
-                              <p className="text-xs">{def.description}</p>
-                            </TooltipContent>
-                          </Tooltip>
-                        </div>
-                        {/* Value input for flags that need it */}
-                        {def.hasValue && state?.enabled && (
-                          <Input
-                            value={state.value}
-                            onChange={(e) => setFlagValue(def.flag, e.target.value)}
-                            placeholder={def.placeholder}
-                            className="h-7 text-xs font-mono ml-6 w-auto"
-                          />
-                        )}
-                      </div>
-                    );
-                  })}
+
+                {/* Presets */}
+                <div className="space-y-2">
+                  <Label className="text-xs text-muted-foreground">Quick presets</Label>
+                  <div className="grid grid-cols-2 gap-1.5">
+                    {FLAG_PRESETS.map((preset) => (
+                      <Tooltip key={preset.id}>
+                        <TooltipTrigger asChild>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            className="h-auto py-1.5 px-2.5 text-[11px] justify-start"
+                            onClick={() => applyPreset(preset)}
+                          >
+                            {preset.label}
+                          </Button>
+                        </TooltipTrigger>
+                        <TooltipContent side="bottom" className="max-w-[280px]">
+                          <p className="text-xs">{preset.description}</p>
+                        </TooltipContent>
+                      </Tooltip>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Flag categories */}
+                <div className="space-y-3 p-3 rounded-lg border border-border/50 bg-accent/20">
+                  {/* Performance */}
+                  <div className="space-y-2">
+                    <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-medium">Performance</p>
+                    {renderFlagGroup("perf")}
+                  </div>
+                  {/* Google Drive */}
+                  <div className="space-y-2 pt-2 border-t border-border/30">
+                    <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-medium">Google Drive</p>
+                    {renderFlagGroup("drive")}
+                  </div>
+                  {/* Filtering */}
+                  <div className="space-y-2 pt-2 border-t border-border/30">
+                    <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-medium">Filtering</p>
+                    {renderFlagGroup("filter")}
+                  </div>
+                  {/* Behavior */}
+                  <div className="space-y-2 pt-2 border-t border-border/30">
+                    <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-medium">Behavior</p>
+                    {renderFlagGroup("behavior")}
+                  </div>
                 </div>
               </div>
 

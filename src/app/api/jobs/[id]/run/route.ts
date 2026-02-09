@@ -78,7 +78,12 @@ export async function POST(
   let speed = 0;
   let eta: number | null = null;
   let totalBytes = 0;
+  let totalTransfers = 0;
+  let totalChecks = 0;
+  let elapsedTime = 0;
+  let rateLimitHits = 0;
   let wasSignaled = false;
+  const startTime = Date.now();
 
   const child = spawn("rclone", args, {
     env: { ...process.env, RCLONE_CONFIG: rcloneConfig },
@@ -102,6 +107,12 @@ export async function POST(
   function parseRcloneStats(text: string) {
     for (const line of text.split("\n")) {
       if (!line.trim()) continue;
+
+      // Detect rate-limit errors (403/429)
+      if (/403|429|rate.?limit|User Rate Limit|quota/i.test(line)) {
+        rateLimitHits++;
+      }
+
       try {
         const entry = JSON.parse(line);
         if (entry.stats) {
@@ -111,6 +122,9 @@ export async function POST(
           if (entry.stats.speed != null) speed = entry.stats.speed;
           if (entry.stats.eta != null) eta = entry.stats.eta;
           if (entry.stats.totalBytes != null) totalBytes = entry.stats.totalBytes;
+          if (entry.stats.totalTransfers != null) totalTransfers = entry.stats.totalTransfers;
+          if (entry.stats.totalChecks != null) totalChecks = entry.stats.totalChecks;
+          if (entry.stats.elapsedTime != null) elapsedTime = entry.stats.elapsedTime;
         }
       } catch {
         const bytesMatch = line.match(/Transferred:\s+([\d.]+)\s*(\w+)/);
@@ -133,15 +147,45 @@ export async function POST(
     if (now - lastProgressUpdate >= 5000) {
       lastProgressUpdate = now;
 
+      const elapsed = (now - startTime) / 1000;
+
       // Build rich summary
       const parts: string[] = [formatBytes(bytesTransferred)];
       if (totalBytes > 0) {
         const pct = Math.round((bytesTransferred / totalBytes) * 100);
         parts[0] = `${formatBytes(bytesTransferred)} / ${formatBytes(totalBytes)} (${pct}%)`;
       }
-      parts.push(`${filesTransferred} files`);
-      if (speed > 0) parts.push(`${formatBytes(speed)}/s`);
+
+      // Files progress
+      if (totalTransfers > 0) {
+        parts.push(`${filesTransferred}/${totalTransfers} files`);
+      } else {
+        parts.push(`${filesTransferred} files`);
+      }
+
+      // Speed: show both instant and average
+      if (speed > 0) {
+        const avgSpeed = elapsed > 0 ? bytesTransferred / elapsed : 0;
+        if (avgSpeed > 0 && Math.abs(speed - avgSpeed) / avgSpeed > 0.3) {
+          // Show both if they differ significantly
+          parts.push(`${formatBytes(speed)}/s (avg ${formatBytes(avgSpeed)}/s)`);
+        } else {
+          parts.push(`${formatBytes(speed)}/s`);
+        }
+      }
+
+      // Files per second
+      if (elapsed > 10 && filesTransferred > 0) {
+        const filesPerSec = (filesTransferred / elapsed).toFixed(1);
+        parts.push(`${filesPerSec} files/s`);
+      }
+
       if (eta != null && eta > 0) parts.push(`ETA ${formatEta(eta)}`);
+
+      // Rate-limit warning
+      if (rateLimitHits > 0) {
+        parts.push(`\u26A0 ${rateLimitHits} rate-limit hits`);
+      }
 
       updateRunProgress(run.id, {
         bytes_transferred: bytesTransferred,
@@ -168,15 +212,19 @@ export async function POST(
     let status: string;
     let summary: string;
 
+    const avgSpeed = durationSeconds > 0 ? bytesTransferred / durationSeconds : 0;
+    const filesPerSec = durationSeconds > 0 ? (filesTransferred / durationSeconds).toFixed(1) : "0";
+    const rateLimitNote = rateLimitHits > 0 ? ` Rate-limit hits: ${rateLimitHits}.` : "";
+
     if (wasSignaled) {
       status = "cancelled";
-      summary = `Stopped by user after ${formatDuration(durationSeconds)}. Transferred ${formatBytes(bytesTransferred)}, ${filesTransferred} files.`;
+      summary = `Stopped by user after ${formatDuration(durationSeconds)}. Transferred ${formatBytes(bytesTransferred)}, ${filesTransferred} files.${rateLimitNote}`;
     } else if (code === 0) {
       status = "success";
-      summary = `Transferred ${formatBytes(bytesTransferred)}, ${filesTransferred} files. ${errorsCount} errors.`;
+      summary = `Transferred ${formatBytes(bytesTransferred)}, ${filesTransferred} files in ${formatDuration(durationSeconds)}. Avg ${formatBytes(avgSpeed)}/s (${filesPerSec} files/s). ${errorsCount} errors.${rateLimitNote}`;
     } else {
       status = "failure";
-      summary = `Failed with exit code ${code}. ${errorsCount} errors. Check logs.`;
+      summary = `Failed with exit code ${code}. ${errorsCount} errors.${rateLimitNote} Check logs.`;
     }
 
     completeRun(run.id, {
