@@ -10,7 +10,7 @@ const DB_PATH = path.join(process.cwd(), "data", "backup-control.db");
 
 let _db: Database.Database | null = null;
 
-function getDb(): Database.Database {
+export function getDb(): Database.Database {
   if (!_db) {
     const fs = require("fs");
     const dir = path.dirname(DB_PATH);
