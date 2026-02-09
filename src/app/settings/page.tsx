@@ -19,14 +19,13 @@ import {
   Save,
   MessageCircle,
   Shield,
-  Clock,
   FolderOpen,
-  Server,
   HardDrive,
   FolderTree,
   Plus,
   Trash2,
   Send,
+  Globe,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -48,13 +47,6 @@ interface SettingsState {
   rclone_config_path: string;
   gdrive_backup_folder: string;
   max_bandwidth: string;
-  // Server
-  server_hostname: string;
-  server_cpu: string;
-  server_ram: string;
-  server_docker_ip: string;
-  server_tailscale_ip: string;
-  server_proxmox_ip: string;
   // Storage paths
   path_nextcloud_data: string;
   path_immich_data: string;
@@ -62,11 +54,8 @@ interface SettingsState {
   path_media_library: string;
   // Disks
   disks_config: string;
-  // Scheduling
+  // General
   timezone: string;
-  blackout_start: string;
-  blackout_end: string;
-  max_concurrent_jobs: string;
 }
 
 const defaultSettings: SettingsState = {
@@ -80,21 +69,12 @@ const defaultSettings: SettingsState = {
   rclone_config_path: "",
   gdrive_backup_folder: "",
   max_bandwidth: "10M",
-  server_hostname: "",
-  server_cpu: "",
-  server_ram: "",
-  server_docker_ip: "",
-  server_tailscale_ip: "",
-  server_proxmox_ip: "",
   path_nextcloud_data: "",
   path_immich_data: "",
   path_immich_db_backups: "",
   path_media_library: "",
   disks_config: "[]",
   timezone: "Europe/Kyiv",
-  blackout_start: "18:00",
-  blackout_end: "23:00",
-  max_concurrent_jobs: "1",
 };
 
 const TIMEZONE_OPTIONS = [
@@ -227,71 +207,31 @@ export default function SettingsPage() {
         </Button>
       </div>
 
-      {/* ── Server Info ──────────────────────────────────────── */}
+      {/* ── Timezone ─────────────────────────────────────────── */}
       <Card>
         <CardHeader>
           <div className="flex items-center gap-2">
-            <Server className="w-5 h-5 text-cyan-500" />
+            <Globe className="w-5 h-5 text-sky-500" />
             <div>
-              <CardTitle className="text-base">Server Info</CardTitle>
-              <CardDescription>Your homelab hardware and network info (shown on Dashboard)</CardDescription>
+              <CardTitle className="text-base">Timezone</CardTitle>
+              <CardDescription>All scheduled job times are interpreted in this timezone</CardDescription>
             </div>
           </div>
         </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="grid grid-cols-2 gap-4">
-            <div className="space-y-2">
-              <Label>Hostname / Model</Label>
-              <Input
-                value={settings.server_hostname}
-                onChange={(e) => update("server_hostname", e.target.value)}
-                placeholder="HP ProDesk 600 G5"
-              />
-            </div>
-            <div className="space-y-2">
-              <Label>CPU</Label>
-              <Input
-                value={settings.server_cpu}
-                onChange={(e) => update("server_cpu", e.target.value)}
-                placeholder="i7-9700"
-              />
-            </div>
-            <div className="space-y-2">
-              <Label>RAM</Label>
-              <Input
-                value={settings.server_ram}
-                onChange={(e) => update("server_ram", e.target.value)}
-                placeholder="24 GB DDR4"
-              />
-            </div>
-            <div className="space-y-2">
-              <Label>Docker VM IP</Label>
-              <Input
-                value={settings.server_docker_ip}
-                onChange={(e) => update("server_docker_ip", e.target.value)}
-                placeholder="192.168.3.200"
-                className="font-mono text-sm"
-              />
-            </div>
-            <div className="space-y-2">
-              <Label>Proxmox IP</Label>
-              <Input
-                value={settings.server_proxmox_ip}
-                onChange={(e) => update("server_proxmox_ip", e.target.value)}
-                placeholder="192.168.3.197"
-                className="font-mono text-sm"
-              />
-            </div>
-            <div className="space-y-2">
-              <Label>Tailscale IP</Label>
-              <Input
-                value={settings.server_tailscale_ip}
-                onChange={(e) => update("server_tailscale_ip", e.target.value)}
-                placeholder="100.x.x.x"
-                className="font-mono text-sm"
-              />
-            </div>
-          </div>
+        <CardContent>
+          <Select
+            value={settings.timezone || "Europe/Kyiv"}
+            onValueChange={(v) => update("timezone", v)}
+          >
+            <SelectTrigger className="w-64">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {TIMEZONE_OPTIONS.map((tz) => (
+                <SelectItem key={tz.value} value={tz.value}>{tz.label}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </CardContent>
       </Card>
 
@@ -365,7 +305,7 @@ export default function SettingsPage() {
         <CardContent className="space-y-4">
           {disks.length === 0 && (
             <p className="text-sm text-muted-foreground text-center py-2">
-              No disks configured. Click "Add Disk" to add your server mounts.
+              No disks configured. Click &quot;Add Disk&quot; to add your server mounts.
             </p>
           )}
           {disks.map((disk, i) => (
@@ -554,80 +494,6 @@ export default function SettingsPage() {
         </CardContent>
       </Card>
 
-      {/* ── Scheduling ───────────────────────────────────────── */}
-      <Card>
-        <CardHeader>
-          <div className="flex items-center gap-2">
-            <Clock className="w-5 h-5 text-orange-500" />
-            <div>
-              <CardTitle className="text-base">Scheduling & Limits</CardTitle>
-              <CardDescription>Control when and how backups run</CardDescription>
-            </div>
-          </div>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="space-y-2">
-            <Label>Timezone</Label>
-            <Select
-              value={settings.timezone || "Europe/Kyiv"}
-              onValueChange={(v) => update("timezone", v)}
-            >
-              <SelectTrigger className="w-64">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {TIMEZONE_OPTIONS.map((tz) => (
-                  <SelectItem key={tz.value} value={tz.value}>{tz.label}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <p className="text-[11px] text-muted-foreground">
-              All scheduled job times (e.g. &quot;daily 03:00&quot;) are interpreted in this timezone
-            </p>
-          </div>
-          <Separator />
-          <div className="space-y-2">
-            <Label>Max Concurrent Jobs</Label>
-            <Input
-              type="number"
-              min="1"
-              max="4"
-              value={settings.max_concurrent_jobs}
-              onChange={(e) => update("max_concurrent_jobs", e.target.value)}
-              className="w-24"
-            />
-          </div>
-          <Separator />
-          <div className="space-y-3">
-            <p className="text-sm font-medium">Blackout Window</p>
-            <p className="text-[11px] text-muted-foreground">
-              No heavy backups during this time (e.g. when watching Jellyfin)
-            </p>
-            <div className="flex items-center gap-4">
-              <div className="space-y-1">
-                <Label className="text-xs text-muted-foreground">Start</Label>
-                <Input
-                  type="time"
-                  value={settings.blackout_start}
-                  onChange={(e) => update("blackout_start", e.target.value)}
-                  className="w-32"
-                />
-              </div>
-              <span className="text-muted-foreground mt-5">—</span>
-              <div className="space-y-1">
-                <Label className="text-xs text-muted-foreground">End</Label>
-                <Input
-                  type="time"
-                  value={settings.blackout_end}
-                  onChange={(e) => update("blackout_end", e.target.value)}
-                  className="w-32"
-                />
-              </div>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
-
       {/* ── About ────────────────────────────────────────────── */}
       <Card>
         <CardHeader>
@@ -642,7 +508,7 @@ export default function SettingsPage() {
         <CardContent className="space-y-2 text-sm">
           <div className="flex justify-between">
             <span className="text-muted-foreground">Version</span>
-            <span className="font-mono">MVP 1.1.0</span>
+            <span className="font-mono">MVP 1.2.0</span>
           </div>
           <div className="flex justify-between">
             <span className="text-muted-foreground">Database</span>
