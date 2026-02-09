@@ -8,6 +8,13 @@ import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Separator } from "@/components/ui/separator";
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
   RefreshCw,
   Save,
   MessageCircle,
@@ -56,6 +63,7 @@ interface SettingsState {
   // Disks
   disks_config: string;
   // Scheduling
+  timezone: string;
   blackout_start: string;
   blackout_end: string;
   max_concurrent_jobs: string;
@@ -83,10 +91,23 @@ const defaultSettings: SettingsState = {
   path_immich_db_backups: "",
   path_media_library: "",
   disks_config: "[]",
+  timezone: "Europe/Kyiv",
   blackout_start: "18:00",
   blackout_end: "23:00",
   max_concurrent_jobs: "1",
 };
+
+const TIMEZONE_OPTIONS = [
+  { value: "Europe/Kyiv", label: "Kyiv (UTC+2 / UTC+3)" },
+  { value: "Europe/Warsaw", label: "Warsaw (UTC+1 / UTC+2)" },
+  { value: "Europe/Berlin", label: "Berlin (UTC+1 / UTC+2)" },
+  { value: "Europe/London", label: "London (UTC+0 / UTC+1)" },
+  { value: "Europe/Moscow", label: "Moscow (UTC+3)" },
+  { value: "America/New_York", label: "New York (UTC-5 / UTC-4)" },
+  { value: "America/Los_Angeles", label: "Los Angeles (UTC-8 / UTC-7)" },
+  { value: "Asia/Tokyo", label: "Tokyo (UTC+9)" },
+  { value: "UTC", label: "UTC" },
+];
 
 export default function SettingsPage() {
   const [settings, setSettings] = useState<SettingsState>(defaultSettings);
@@ -545,6 +566,26 @@ export default function SettingsPage() {
           </div>
         </CardHeader>
         <CardContent className="space-y-4">
+          <div className="space-y-2">
+            <Label>Timezone</Label>
+            <Select
+              value={settings.timezone || "Europe/Kyiv"}
+              onValueChange={(v) => update("timezone", v)}
+            >
+              <SelectTrigger className="w-64">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {TIMEZONE_OPTIONS.map((tz) => (
+                  <SelectItem key={tz.value} value={tz.value}>{tz.label}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <p className="text-[11px] text-muted-foreground">
+              All scheduled job times (e.g. &quot;daily 03:00&quot;) are interpreted in this timezone
+            </p>
+          </div>
+          <Separator />
           <div className="space-y-2">
             <Label>Max Concurrent Jobs</Label>
             <Input
