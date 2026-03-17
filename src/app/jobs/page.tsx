@@ -285,7 +285,7 @@ const FLAG_PRESETS: Preset[] = [
 
 // ── Schedule helpers ─────────────────────────────────────────
 
-type ScheduleFreq = "daily" | "every_hours" | "weekly" | "custom";
+type ScheduleFreq = "manual" | "daily" | "every_hours" | "weekly" | "custom";
 
 interface ParsedSchedule {
   freq: ScheduleFreq;
@@ -302,7 +302,7 @@ function parseSchedule(raw: string): ParsedSchedule {
     interval: "6", weekday: "mon", customText: raw,
   };
 
-  if (!raw) return defaults;
+  if (!raw) return { ...defaults, freq: "manual", customText: "" };
 
   // "daily HH:MM"
   const dailyMatch = raw.match(/^daily\s+(\d{1,2}):(\d{2})$/i);
@@ -327,6 +327,7 @@ function parseSchedule(raw: string): ParsedSchedule {
 
 function buildSchedule(p: ParsedSchedule): string {
   switch (p.freq) {
+    case "manual": return "";
     case "daily": return `daily ${p.hour}:${p.minute}`;
     case "every_hours": return `every ${p.interval}h`;
     case "weekly": return `weekly ${p.weekday} ${p.hour}:${p.minute}`;
@@ -740,7 +741,7 @@ export default function JobsPage() {
                     </div>
                     <div className="flex gap-2">
                       <span className="text-muted-foreground w-20 flex-shrink-0">Schedule:</span>
-                      <span>{job.schedule}</span>
+                      <span>{job.schedule || "Manual only (Run Now)"}</span>
                     </div>
                     {job.flags && (
                       <div className="flex gap-2">
@@ -909,6 +910,7 @@ export default function JobsPage() {
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
+                        <SelectItem value="manual">Manual only (Run now)</SelectItem>
                         <SelectItem value="daily">Every day</SelectItem>
                         <SelectItem value="every_hours">Every N hours</SelectItem>
                         <SelectItem value="weekly">Weekly</SelectItem>
@@ -1010,7 +1012,7 @@ export default function JobsPage() {
 
                   {/* Preview */}
                   <p className="text-[10px] text-muted-foreground pt-1 border-t border-border/30">
-                    Stored as: <code className="bg-accent px-1 rounded">{buildSchedule(schedule)}</code>
+                    Stored as: <code className="bg-accent px-1 rounded">{buildSchedule(schedule) || "(manual: no schedule)"}</code>
                   </p>
                 </div>
               </div>

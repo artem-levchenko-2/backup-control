@@ -33,7 +33,7 @@ export interface Job {
   enabled: 0 | 1;
   source_path: string;
   destination_path: string;
-  schedule: string;           // cron-like or human-readable
+  schedule: string;           // cron-like/human-readable; empty string = manual only
   flags: string;              // extra CLI flags (JSON or plain)
   description: string;
   created_at: string;
