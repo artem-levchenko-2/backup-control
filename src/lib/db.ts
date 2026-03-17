@@ -263,6 +263,33 @@ export function updateRunProgress(
   `).run({ id, ...data });
 }
 
+export function recoverStaleRunningRuns(): number {
+  const result = getDb().prepare(`
+    UPDATE runs
+    SET
+      status = 'cancelled',
+      finished_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now'),
+      duration_seconds = COALESCE(
+        duration_seconds,
+        CAST((julianday('now') - julianday(replace(replace(started_at, 'T', ' '), 'Z', ''))) * 86400 AS INTEGER)
+      ),
+      errors_count = CASE WHEN errors_count > 0 THEN errors_count ELSE 1 END,
+      short_summary = CASE
+        WHEN short_summary IS NULL OR short_summary = ''
+          THEN 'Cancelled: service restarted before run completion.'
+        ELSE short_summary || ' · cancelled (service restart)'
+      END,
+      log_excerpt = CASE
+        WHEN log_excerpt IS NULL OR log_excerpt = ''
+          THEN 'Run marked as cancelled on startup: process no longer exists (likely service restart/deploy).'
+        ELSE log_excerpt || char(10) || char(10) || '[system] Marked cancelled on startup: process no longer exists (likely service restart/deploy).'
+      END
+    WHERE status = 'running'
+  `).run();
+
+  return result.changes;
+}
+
 // ── Dashboard Stats ─────────────────────────────────────────
 
 export function getDashboardStats(): DashboardStats {
