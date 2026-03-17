@@ -97,7 +97,7 @@ export function createJob(data: Partial<Job>): Job {
     enabled: data.enabled ?? 1,
     source_path: data.source_path || "",
     destination_path: data.destination_path || "",
-    schedule: data.schedule || "daily 02:00",
+    schedule: data.schedule ?? "daily 02:00",
     flags: data.flags || "",
     description: data.description || "",
   });
