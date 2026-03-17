@@ -304,10 +304,15 @@ function parseTransferredBytes(value: string, unit: string): number {
 }
 
 function formatBytes(bytes: number): string {
-  if (bytes === 0) return "0 B";
+  if (!Number.isFinite(bytes) || bytes <= 0) return "0 B";
   const units = ["B", "KB", "MB", "GB", "TB"];
-  const i = Math.floor(Math.log(bytes) / Math.log(1024));
-  return (bytes / Math.pow(1024, i)).toFixed(1) + " " + units[i];
+  let value = bytes;
+  let unitIndex = 0;
+  while (value >= 1024 && unitIndex < units.length - 1) {
+    value /= 1024;
+    unitIndex++;
+  }
+  return `${value.toFixed(unitIndex === 0 ? 0 : 1)} ${units[unitIndex]}`;
 }
 
 function formatEta(seconds: number): string {
